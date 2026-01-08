@@ -6,16 +6,20 @@
     "node": ">=14"
   },
   "scripts": {
-    "start": "node bot.js",
+    "start": "node bot_twillio.js",
     "dev": "DEV=true npm run start"
   },
   "dependencies": {
+    "@google-cloud/vision": "^5.3.4",
     "axios": "^1.3.6",
-    "express": "^4.18.2",
-    "form-data": "^4.0.0",
+    "cron": "^4.4.0",
+    "dotenv": "^17.2.3",
+    "express": "^4.22.1",
+    "form-data": "^4.0.5",
     "moment": "^2.29.4",
     "ngrok": "^4.3.3",
     "node-fetch": "^3.3.2",
-    "nodemon": "^3.1.4"
+    "nodemon": "^3.1.4",
+    "twilio": "^5.11.1"
   }
 }

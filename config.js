@@ -22,11 +22,11 @@ module.exports = {
   // Optional. Specify the Wassenger device ID (24 characters hexadecimal length) to be used for the chatbot
   // If no device is defined, the first connected device will be used
   // Obtain the device ID in the Wassenger app: https://app.wassenger.com/number
-  device: env.DEVICE || '66b0336fabe629577544bcfc',
+  device: env.DEVICE || '695b1916aad57467aeb821ad',
 
   // Required. Specify the Wassenger API key to be used
   // You can obtain it here: https://app.wassenger.com/apikeys
-  apiKey: env.API_KEY || '5f2b52671403b58ca545168a08bc6f9fde60ca1047c12f29bb4cb0bf07aa421117ded281ee39efef',
+  apiKey: env.API_KEY || '722e8a6c3bac7437e18b1d16ab7793995170a94a7c8d4e20010474cad7f30df4ab307967a3aa0c0e',
 
   // Optional. HTTP server TCP port to be used. Defaults to 8080
   port: +env.PORT || 8080,
@@ -37,13 +37,13 @@ module.exports = {
   // Optional. Specify the webhook public URL to be used for receiving webhook events
   // If no webhook is specified, the chatbot will automatically create an Ngrok tunnel
   // and register it as the webhook URL.
-  webhookUrl: env.WEBHOOK_URL || 'https://4a6f-2405-9800-bca0-41e2-31cf-6554-67a1-5a64.ngrok-free.app',
+  webhookUrl: env.WEBHOOK_URL || 'https://subjacent-shin-nonvalorously.ngrok-free.dev',
 
   // Ngrok tunnel authentication token.
   // Required if webhook URL is not provided.
   // sign up for free and get one: https://ngrok.com/signup
   // Learn how to obtain the auth token: https://ngrok.com/docs/agent/#authtokens
-  ngrokToken: env.NGROK_TOKEN,
+  ngrokToken: env.NGROK_TOKEN || '37pOHdZgilQcqPscQ847l2yUIYp_5xHKP5U1Ph1EMeZvpxUx2',
 
   // Set one or multiple labels on chatbot-managed chats
   setLabelsOnBotChats: ['bot'],

@@ -18,6 +18,7 @@ const app = express()
 
 // Middleware to parse incoming request bodies
 app.use(bodyParser.json())
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // Index route
 app.get('/', (req, res) => {
@@ -44,6 +45,7 @@ app.get('/', (req, res) => {
 // POST route to handle incoming webhook messages
 app.post('/webhook', (req, res) => {
   const { body } = req
+  console.log(body.data.body)
   if (!body || !body.event || !body.data) {
     return res.status(400).send({ message: 'Invalid payload body' })
   }
@@ -61,6 +63,7 @@ app.post('/webhook', (req, res) => {
 
 app.post('/message', (req, res) => {
   const { body } = req;
+  console.log("Incoming request body:", req.body); 
   if (!body || !body.phone || !body.message) {
     return res.status(400).send({ message: 'Invalid payload body' });
   }
@@ -311,47 +314,47 @@ function canReply({ data, device }) {
   const { chat } = data
 
   // Skip if chat is already assigned to an team member
-  if (chat.owner && chat.owner.agent) {
-    return false
-  }
+  // if (chat.owner && chat.owner.agent) {
+  //   return false
+  // }
 
-  // Ignore messages from group chats
-  if (chat.type !== 'chat') {
-    return false
-  }
+  // // Ignore messages from group chats
+  // if (chat.type !== 'chat') {
+  //   return false
+  // }
 
-  // Skip replying chat if it has one of the configured labels, when applicable
-  if (config.skipChatWithLabels && config.skipChatWithLabels.length && chat.labels && chat.labels.length) {
-    if (config.skipChatWithLabels.some(label => chat.labels.includes(label))) {
-      return false
-    }
-  }
+  // // Skip replying chat if it has one of the configured labels, when applicable
+  // if (config.skipChatWithLabels && config.skipChatWithLabels.length && chat.labels && chat.labels.length) {
+  //   if (config.skipChatWithLabels.some(label => chat.labels.includes(label))) {
+  //     return false
+  //   }
+  // }
 
-  // Only reply to chats that were whitelisted, when applicable
-  if (config.numbersWhitelist && config.numbersWhitelist.length && chat.fromNumber) {
-    if (config.numbersWhitelist.some(number => number === chat.fromNumber || chat.fromNumber.slice(1) === number)) {
-      return true
-    } else {
-      return false
-    }
-  }
+  // // Only reply to chats that were whitelisted, when applicable
+  // if (config.numbersWhitelist && config.numbersWhitelist.length && chat.fromNumber) {
+  //   if (config.numbersWhitelist.some(number => number === chat.fromNumber || chat.fromNumber.slice(1) === number)) {
+  //     return true
+  //   } else {
+  //     return false
+  //   }
+  // }
 
-  // Skip replying to chats that were explicitly blacklisted, when applicable
-  if (config.numbersBlacklist && config.numbersBlacklist.length && chat.fromNumber) {
-    if (config.numbersBlacklist.some(number => number === chat.fromNumber || chat.fromNumber.slice(1) === number)) {
-      return false
-    }
-  }
+  // // Skip replying to chats that were explicitly blacklisted, when applicable
+  // if (config.numbersBlacklist && config.numbersBlacklist.length && chat.fromNumber) {
+  //   if (config.numbersBlacklist.some(number => number === chat.fromNumber || chat.fromNumber.slice(1) === number)) {
+  //     return false
+  //   }
+  // }
 
-  // Skip replying chats that were archived, when applicable
-  if (config.skipArchivedChats && (chat.status === 'archived' || chat.waStatus === 'archived')) {
-    return false
-  }
+  // // Skip replying chats that were archived, when applicable
+  // if (config.skipArchivedChats && (chat.status === 'archived' || chat.waStatus === 'archived')) {
+  //   return false
+  // }
 
-  // Always ignore replying to banned chats/contacts
-  if ((chat.status === 'banned' || chat.waStatus === 'banned  ')) {
-    return false
-  }
+  // // Always ignore replying to banned chats/contacts
+  // if ((chat.status === 'banned' || chat.waStatus === 'banned  ')) {
+  //   return false
+  // }
 
   return true
 }
@@ -381,14 +384,17 @@ async function updateChatState(chatId, update) {
 
 
 async function checkOrCreateUserProfile({ phone, name }) {
+  
   try {
     // Send user data to WordPress server with authorization header
+    const token = await getJwtToken()
+    console.log("token",token)
     const response = await axios.post('http://whatsapp-chatbot.local/wp-json/custom/v1/store-whatsapp-user', {
       phone,
       name
     }, {
       headers: {
-        'Authorization': `Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwOi8vd2hhdHNhcHAtY2hhdGJvdC5sb2NhbCIsImlhdCI6MTcyNDEyMzYwMSwibmJmIjoxNzI0MTIzNjAxLCJleHAiOjE3MjQ3Mjg0MDEsImRhdGEiOnsidXNlciI6eyJpZCI6IjEifX19.VyDaJiI8ADhwkLlsr5NojT1QOcetGuXuEVhfwba4KVw`,
+        'Authorization': `Bearer ${token}`,
       }
     });
 
@@ -693,6 +699,8 @@ async function registerWebhook(tunnel, device) {
     headers: { Authorization: config.apiKey }
   })
 
+  console.log(webhooks)
+
   const findWebhook = webhook => {
     return (
       webhook.url === webhookUrl &&
@@ -789,6 +797,7 @@ async function main() {
 
   // Find a WhatsApp number connected to the Wassenger API
   const device = await loadDevice()
+  console.log(device)
   if (!device) {
     return exit('No active WhatsApp numbers in your account. Please connect a WhatsApp number in your Wassenger account:\nhttps://app.wassenger.com/create')
   }
@@ -846,3 +855,17 @@ async function main() {
 main().catch(err => {
   exit('Failed to start chatbot server:', err)
 })
+
+async function getJwtToken() {
+  const { data } = await axios.post(
+    `http://whatsapp-chatbot.local/wp-json/jwt-auth/v1/token`,
+    {
+      // username: process.env.BOT_USERNAME,
+      // password: process.env.BOT_PASSWORD
+      username: "admin",
+      password: "admin"
+    }
+  )
+
+  return data.token
+}
