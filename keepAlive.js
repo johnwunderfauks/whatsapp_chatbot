@@ -4,7 +4,7 @@ const https = require("https");
 
 const job = new cron.CronJob("*/14 * * * *", function () {
   https
-    .get("https://nodejs-whatsappbot-pn25.onrender.com", (res) => {
+    .get("https://whatsapp-chatbot-3tkc.onrender.com", (res) => {
       if (res.statusCode === 200) {
         console.log("✅ Ping successful at", new Date().toLocaleTimeString());
       } else {
