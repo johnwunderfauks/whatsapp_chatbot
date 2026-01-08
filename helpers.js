@@ -115,16 +115,16 @@ async function updateChatState(chatId, update) {
 async function checkOrCreateUserProfile({ phone, name }) {
   console.log(phone,name)
   try {
-    const token = getJwtToken();
+    // const token = getJwtToken();
     console.log(token)
     const response = await axios.post(
       `${WP_URL}/wp-json/custom/v1/store-whatsapp-user`,
       { phone, name },
-      {
-        headers: {
-          Authorization: `Basic ${token}`
-        }
-      }
+      // {
+      //   headers: {
+      //     Authorization: `Basic ${token}`
+      //   }
+      // }
     );
 
     console.log(response)
