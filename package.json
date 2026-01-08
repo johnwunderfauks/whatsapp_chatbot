@@ -6,7 +6,7 @@
     "node": ">=14"
   },
   "scripts": {
-    "start": "node bot_twillio.js",
+    "start": "node index.js",
     "dev": "DEV=true npm run start"
   },
   "dependencies": {
