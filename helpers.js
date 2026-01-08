@@ -12,21 +12,23 @@ const chatStateStore = new Map();
 const {
   WP_USER,
   WP_PASS,
+  WP_APP_PASSWORD,
   WP_URL = 'https://wunderfauksw18.sg-host.com/'
 } = process.env;
 
 
-async function getJwtToken() {
-  const { data } = await axios.post(
-    `${WP_URL}/wp-json/jwt-auth/v1/token`,
-    {
-      username: WP_USER,
-      password: WP_PASS
-    },
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  console.log(data)
-  return data.token;
+function getJwtToken() {
+  // const { data } = await axios.post(
+  //   `${WP_URL}/wp-json/jwt-auth/v1/token`,
+  //   {
+  //     username: WP_USER,
+  //     password: WP_PASS
+  //   },
+  //   { headers: { 'Content-Type': 'application/json' } }
+  // );
+  // console.log(data)
+  const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
+  return auth;
 }
 
 function bufferToStream(buffer) {
@@ -49,7 +51,7 @@ async function parseReceipt(rawText) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+        "Authorization": `Basic ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
@@ -113,14 +115,14 @@ async function updateChatState(chatId, update) {
 async function checkOrCreateUserProfile({ phone, name }) {
   console.log(phone,name)
   try {
-    const token = await getJwtToken();
+    const token = getJwtToken();
     console.log(token)
     const response = await axios.post(
       `${WP_URL}/wp-json/custom/v1/store-whatsapp-user`,
       { phone, name },
       {
         headers: {
-          Authorization: `Bearer ${token}`
+          Authorization: `Basic ${token}`
         }
       }
     );
@@ -149,7 +151,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
 
   if (!profileId) throw new Error('Profile ID is not defined');
 
-  const token = await getJwtToken();
+  const token = getJwtToken();
 
   const formData = new FormData();
 
@@ -168,7 +170,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
       formData,
       {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Basic ${token}`,
           ...formData.getHeaders()
         }
       }
@@ -201,7 +203,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Basic ${token}`,
             'Content-Type': 'application/json'
           }
         }
@@ -234,22 +236,22 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
 }
 
 async function getPurchaseHistory(profileId) {
-  const token = await getJwtToken();
+  const token = getJwtToken();
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/receipts`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Bearer ${token}` } }
+    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}` } }
   );
 
   return data;
 }
 
 async function getLoyaltyPoints(profileId) {
-  const token = await getJwtToken();
+  const token = getJwtToken();
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/user-profile`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Bearer ${token}` } }
+    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}` } }
   );
 
   return data;
@@ -257,11 +259,11 @@ async function getLoyaltyPoints(profileId) {
 
 
 async function getAvailableRewards(profileId) {
-  const token = await getJwtToken();
+  const token = getJwtToken();
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/rewards?profile_id=${profileId}`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    { headers: { Authorization: `Basic ${token}` } }
   );
 
   return data;
