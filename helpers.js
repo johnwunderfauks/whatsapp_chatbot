@@ -116,7 +116,7 @@ async function checkOrCreateUserProfile({ phone, name }) {
   console.log(phone,name)
   try {
     // const token = getJwtToken();
-    console.log(token)
+    // console.log(token)
     const response = await axios.post(
       `${WP_URL}/wp-json/custom/v1/store-whatsapp-user`,
       { phone, name },
