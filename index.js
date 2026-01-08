@@ -211,7 +211,7 @@ app.post('/whatsapp/notify-user', async (req, res) => {
     
     // Send WhatsApp message
     await client.messages.create({
-      from: 'whatsapp:+14155238886', // your Twilio WhatsApp number
+      from: 'whatsapp:+15557969091', // your Twilio WhatsApp number
       to: `whatsapp:${phone}`,
       body: message
     });
