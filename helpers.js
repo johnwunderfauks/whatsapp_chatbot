@@ -27,6 +27,7 @@ function getJwtToken() {
   //   { headers: { 'Content-Type': 'application/json' } }
   // );
   // console.log(data)
+  console.log(WP_APP_PASSWORD)
   const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
   return auth;
 }
@@ -115,16 +116,18 @@ async function updateChatState(chatId, update) {
 async function checkOrCreateUserProfile({ phone, name }) {
   console.log(phone,name)
   try {
-    // const token = getJwtToken();
-    // console.log(token)
+    const token = getJwtToken();
+    console.log(token)
     const response = await axios.post(
       `${WP_URL}/wp-json/custom/v1/store-whatsapp-user`,
       { phone, name },
-      // {
-      //   headers: {
-      //     Authorization: `Basic ${token}`
-      //   }
-      // }
+      {
+        headers: {
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        }
+      }
     );
 
     console.log(response)
@@ -171,6 +174,8 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
       {
         headers: {
           Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0',
           ...formData.getHeaders()
         }
       }
@@ -204,7 +209,8 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
         {
           headers: {
             Authorization: `Basic ${token}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'User-Agent': 'WhatsApp-Bot/1.0'
           }
         }
       );
@@ -240,7 +246,8 @@ async function getPurchaseHistory(profileId) {
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/receipts`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}` } }
+    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0' } }
   );
 
   return data;
@@ -251,7 +258,8 @@ async function getLoyaltyPoints(profileId) {
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/user-profile`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}` } }
+    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0' } }
   );
 
   return data;
@@ -263,7 +271,8 @@ async function getAvailableRewards(profileId) {
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/rewards?profile_id=${profileId}`,
-    { headers: { Authorization: `Basic ${token}` } }
+    { headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0' } }
   );
 
   return data;
