@@ -29,7 +29,7 @@ async function getJwtToken() {
   console.log(data)
   // console.log(WP_APP_PASSWORD)
   // const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
-  return data;
+  return data.token;
 }
 
 function bufferToStream(buffer) {
