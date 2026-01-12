@@ -17,19 +17,20 @@ const {
 } = process.env;
 
 
-async function getJwtToken() {
-  const { data } = await axios.post(
-    `${WP_URL}/wp-json/jwt-auth/v1/token`,
-    {
-      username: WP_USER,
-      password: WP_PASS
-    },
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  console.log(data)
+function getJwtToken() {
+  // const { data } = await axios.post(
+  //   `${WP_URL}/wp-json/jwt-auth/v1/token`,
+  //   {
+  //     username: WP_USER,
+  //     password: WP_PASS
+  //   },
+  //   { headers: { 'Content-Type': 'application/json' } }
+  // );
+  // console.log(data)
   // console.log(WP_APP_PASSWORD)
-  // const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
-  return data.token;
+  const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
+  // return data.token;
+  return auth;
 }
 
 function bufferToStream(buffer) {
@@ -123,7 +124,7 @@ async function checkOrCreateUserProfile({ phone, name }) {
       { phone, name },
       {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Basic ${token}`,
           'Content-Type': 'application/json',
           'User-Agent': 'WhatsApp-Bot/1.0'
         }
@@ -173,7 +174,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
       formData,
       {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Basic ${token}`,
           'Content-Type': 'application/json',
           'User-Agent': 'WhatsApp-Bot/1.0',
           ...formData.getHeaders()
@@ -208,7 +209,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Basic ${token}`,
             'Content-Type': 'application/json',
             'User-Agent': 'WhatsApp-Bot/1.0'
           }
@@ -246,7 +247,7 @@ async function getPurchaseHistory(profileId) {
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/receipts`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Bearer ${token}`,'Content-Type': 'application/json',
+    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
           'User-Agent': 'WhatsApp-Bot/1.0' } }
   );
 
@@ -258,7 +259,7 @@ async function getLoyaltyPoints(profileId) {
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/user-profile`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Bearer ${token}`,'Content-Type': 'application/json',
+    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
           'User-Agent': 'WhatsApp-Bot/1.0' } }
   );
 
@@ -271,7 +272,7 @@ async function getAvailableRewards(profileId) {
 
   const { data } = await axios.get(
     `${WP_URL}/wp-json/custom/v1/rewards?profile_id=${profileId}`,
-    { headers: { Authorization: `Bearer ${token}`,'Content-Type': 'application/json',
+    { headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
           'User-Agent': 'WhatsApp-Bot/1.0' } }
   );
 
