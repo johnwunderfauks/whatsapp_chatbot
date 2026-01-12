@@ -43,7 +43,7 @@ function bufferToStream(buffer) {
 async function extractReceiptText(imageBuffer) {
   const [result] = await visionClient.textDetection(imageBuffer);
   const text = result.fullTextAnnotation?.text || '';
-  console.log(text)
+  console.log("raw",text)
   return text;
 }
 
@@ -89,7 +89,7 @@ Example: {"store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"1
     
     // Remove markdown code blocks if present
     const cleanText = text.replace(/```json\n?|```\n?/g, '');
-    console.log(cleanText)
+    console.log("clean",cleanText)
     
     return JSON.parse(cleanText);
     
