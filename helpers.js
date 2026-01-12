@@ -43,7 +43,6 @@ function bufferToStream(buffer) {
 async function extractReceiptText(imageBuffer) {
   const [result] = await visionClient.textDetection(imageBuffer);
   const text = result.fullTextAnnotation?.text || '';
-  console.log("raw",text)
   return text;
 }
 
@@ -53,7 +52,7 @@ async function parseReceipt(rawText) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Basic ${process.env.OPENAI_API_KEY}`
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
@@ -80,7 +79,6 @@ Example: {"store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"1
       })
     });
 
-    console.log("chat gpt response", response)
 
     if (!response.ok) {
       throw new Error(`OpenAI API error: ${response.status}`);
@@ -91,7 +89,6 @@ Example: {"store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"1
     
     // Remove markdown code blocks if present
     const cleanText = text.replace(/```json\n?|```\n?/g, '');
-    console.log("clean",cleanText)
     
     return JSON.parse(cleanText);
     
@@ -118,7 +115,6 @@ async function updateChatState(chatId, update) {
 }
 
 async function checkOrCreateUserProfile({ phone, name }) {
-  console.log(phone,name)
   try {
     const token = getJwtToken();
     const response = await axios.post(
@@ -196,7 +192,6 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
 
     // 4️⃣ Store parsed data in WordPress
     const receiptId = uploadResponse.data.receipt_id; // This comes from your upload response
-    console.log("receiptid",receiptId)
     try {
       const updateResponse = await axios.post(
         `${WP_URL}/wp-json/custom/v1/receipt/${receiptId}`,
@@ -219,7 +214,6 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
       );
 
       logToFile(`[info] Receipt details stored: ${JSON.stringify(updateResponse.data)}`);
-      console.log(updateResponse)
       
       return {
         success: true,
