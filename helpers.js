@@ -80,6 +80,8 @@ Example: {"store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"1
       })
     });
 
+    console.log("chat gpt response", response)
+
     if (!response.ok) {
       throw new Error(`OpenAI API error: ${response.status}`);
     }
