@@ -118,7 +118,6 @@ async function checkOrCreateUserProfile({ phone, name }) {
   console.log(phone,name)
   try {
     const token = getJwtToken();
-    console.log(token)
     const response = await axios.post(
       `${WP_URL}/wp-json/custom/v1/store-whatsapp-user`,
       { phone, name },
@@ -131,7 +130,6 @@ async function checkOrCreateUserProfile({ phone, name }) {
       }
     );
 
-    console.log(response)
 
     return {
       profileId:
@@ -182,6 +180,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
       }
     );
 
+
     logToFile(`[info] WP upload success: ${JSON.stringify(uploadResponse.data)}`);
 
     // 2️⃣ Extract text with Google Vision
@@ -194,7 +193,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
 
     // 4️⃣ Store parsed data in WordPress
     const receiptId = uploadResponse.data.receipt_id; // This comes from your upload response
-
+    console.log("receiptid",receiptId)
     try {
       const updateResponse = await axios.post(
         `${WP_URL}/wp-json/custom/v1/receipt/${receiptId}`,
@@ -217,6 +216,7 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
       );
 
       logToFile(`[info] Receipt details stored: ${JSON.stringify(updateResponse.data)}`);
+      console.log(updateResponse)
       
       return {
         success: true,
