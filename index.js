@@ -7,8 +7,7 @@ app.use(bodyParser.json());
 require('dotenv').config();
 const { job } = require('./keepAlive');
 
-job.start();
-console.log('🔄 Keep-alive job started (pings every 14 minutes)');
+
 
 const twilio = require('twilio');
 
@@ -38,6 +37,18 @@ async function sendReply(res, message) {
 function isMatch(text, patterns = []) {
   return patterns.some(p => p.test(text));
 }
+
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    status: 'alive', 
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    service: 'WhatsApp Receipt Bot'
+  });
+});
+
+job.start();
+console.log('🔄 Keep-alive job started (pings every 14 minutes)');
 
 app.post('/whatsapp', async (req, res) => {
 
