@@ -196,32 +196,190 @@ Type *help* to see this again.`;
   return sendReply(res, defaultMessage);
 });
 
+// app.post('/whatsapp/notify-user', async (req, res) => {
+//   try {
+//     const { phone, message, receipt_id, use_template, template_name, template_params } = req.body;
+//     console.log(use_template, template_name, template_params, use_template && template_name)
+    
+//     if (!phone) {
+//       return res.status(400).json({ success: false, message: 'Missing phone' });
+//     }
+
+//     if (!use_template && !message) {
+//       return res.status(400).json({ success: false, message: 'Missing message' });
+//     }
+
+//     if (use_template && template_name) {
+//       // Using Twilio Content API with approved template
+//       console.log("otp content template")
+//       const twilioMessage = await client.messages.create({
+//         from: 'whatsapp:+15557969091',
+//         to: `whatsapp:${phone}`,
+//         contentSid: 'HXdcdd359845fc13bcb68c13031cdfb9b1', 
+//         contentVariables: JSON.stringify({
+//           '1': template_params[0] // OTP code
+//         })
+//       });
+      
+//       logToFile(`[info] Template OTP sent to ${phone}. SID: ${twilioMessage.sid}`);
+//     } else {
+      
+//       // Send WhatsApp message
+//       await client.messages.create({
+//         from: 'whatsapp:+15557969091', 
+//         to: `whatsapp:${phone}`,
+//         body: message
+//      });
+
+//      res.json({ 
+//       success: true, 
+//       message: 'Notification is being sent...'
+//     });
+    
+//     logToFile(`[info] Notification sent to ${phone} for receipt ${receipt_id}`);
+//   }
+    
+//     // res.json({ success: true, message: 'Notification sent' });
+//   } catch (error) {
+//     logToFile(`[error] Notification failed: ${error.message}`);
+//     if (!res.headersSent) {
+//       return res.status(500).json({
+//         success: false,
+//         message: error.message
+//       });
+//     }
+//   }
+// });
+
+
+const TEMPLATE_MAP = {
+  otp_login: {
+    contentSid: 'HX847815afd920cc7ca6f554c06dd46759'
+  },
+  receipt_processed: {
+    contentSid: 'HXd7bf38a282b67d30bb3a0c98cbebeafb'
+  },
+  loyalty_points_earned: {
+    contentSid: 'HXcf05356c153974ef490f326741cd174e'
+  },
+  reward_redemption: {
+    contentSid: 'HXb7de458f1be8cb80bb085fc65671836d'
+  },
+  reward_fulfilled: {
+    contentSid: 'HXd19dff3b867b2341dcac59c17556ac98'
+  },
+  reward_cancelled: {
+    contentSid: 'HX19116ef948a322a0040b8fe20cc572ab'
+  },
+  reward_pending: {
+    contentSid: 'HX2ac8f2a3bde6d15a91d42d07ce2264c5'
+  }
+};
+
 app.post('/whatsapp/notify-user', async (req, res) => {
   try {
-    const { phone, message, receipt_id } = req.body;
-    
-    if (!phone || !message) {
-      return res.status(400).json({ success: false, message: 'Missing phone or message' });
+    const {
+      phone,
+      message,
+      receipt_id,
+      use_template,
+      template_name,
+      template_params = []
+    } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing phone'
+      });
     }
-    
-    res.json({ 
-      success: true, 
-      message: 'Notification is being sent...'
+
+    let twilioResponse;
+    let usedFallback = false;
+
+    // =============================
+    // 1️⃣ Try template if requested
+    // =============================
+    if (use_template && template_name && TEMPLATE_MAP[template_name]) {
+      try {
+        // Build contentVariables: { "1": "...", "2": "..." }
+        const contentVariables = {};
+        template_params.forEach((value, index) => {
+          contentVariables[String(index + 1)] = String(value);
+        });
+
+        console.log(
+          'Using template:',
+          template_name,
+          contentVariables
+        );
+
+        twilioResponse = await client.messages.create({
+          from: 'whatsapp:+15557969091',
+          to: `whatsapp:${phone}`,
+          contentSid: TEMPLATE_MAP[template_name].contentSid,
+          contentVariables: JSON.stringify(contentVariables)
+        });
+
+        logToFile(
+          `[info] Template "${template_name}" sent to ${phone}. SID: ${twilioResponse.sid}`
+        );
+      } catch (templateError) {
+        // 🚨 Template failed → fallback to text
+        usedFallback = true;
+
+        logToFile(
+          `[warn] Template "${template_name}" failed for ${phone}: ${templateError.message}. Falling back to text message.`
+        );
+      }
+    } else if (use_template) {
+      // Template requested but invalid
+      usedFallback = true;
+      logToFile(
+        `[warn] Invalid or missing template_name "${template_name}". Falling back to text message.`
+      );
+    }
+
+    // =============================
+    // 2️⃣ Fallback / normal message
+    // =============================
+    if (!twilioResponse) {
+      if (!message) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing message for fallback delivery'
+        });
+      }
+
+      twilioResponse = await client.messages.create({
+        from: 'whatsapp:+15557969091',
+        to: `whatsapp:${phone}`,
+        body: message
+      });
+
+      logToFile(
+        `[info] Text message sent to ${phone} for receipt ${receipt_id}`
+      );
+    }
+
+    // =============================
+    // 3️⃣ Final response (ONCE)
+    // =============================
+    return res.json({
+      success: true,
+      sid: twilioResponse.sid,
+      fallback_used: usedFallback
     });
-    
-    // Send WhatsApp message
-    await client.messages.create({
-      from: 'whatsapp:+15557969091', // your Twilio WhatsApp number
-      to: `whatsapp:${phone}`,
-      body: message
-    });
-    
-    logToFile(`[info] Notification sent to ${phone} for receipt ${receipt_id}`);
-    
-    // res.json({ success: true, message: 'Notification sent' });
+
   } catch (error) {
     logToFile(`[error] Notification failed: ${error.message}`);
-    res.status(500).json({ success: false, message: error.message });
+
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
   }
 });
 
