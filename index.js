@@ -7,6 +7,9 @@ app.use(bodyParser.json());
 require('dotenv').config();
 const { job } = require('./keepAlive');
 
+job.start();
+console.log('🔄 Keep-alive job started (pings every 14 minutes)');
+
 const twilio = require('twilio');
 
 const client = twilio(
