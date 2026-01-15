@@ -268,7 +268,7 @@ Type *help* to see this again.`;
 
 const TEMPLATE_MAP = {
   otp_login: {
-    contentSid: 'HX847815afd920cc7ca6f554c06dd46759'
+    contentSid: 'HX907d9dfddd7d90627d2000c5e396cac2'
   },
   receipt_processed: {
     contentSid: 'HXd7bf38a282b67d30bb3a0c98cbebeafb'
