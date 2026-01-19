@@ -1,0 +1,6 @@
+[2026-01-19T07:26:39.971Z] [info] Template "receipt_processed" sent to +66925647576. SID: MM294ccdaac3f5d15649177da08377bdf2
+[2026-01-19T07:26:41.834Z] [info] Default menu sent to +66925647576
+[2026-01-19T07:28:33.074Z] [info] Template "reward_request_confirmation" sent to +66925647576. SID: MMe283bb5bc301977ec5104c6fa83d666d
+[2026-01-19T07:28:35.391Z] [info] Default menu sent to +66925647576
+[2026-01-19T07:35:03.663Z] [info] Template "reward_redemption" sent to +66925647576. SID: MMe1527d2bda4a9e568ee992b04f89b659
+[2026-01-19T07:35:05.984Z] [info] Default menu sent to +66925647576

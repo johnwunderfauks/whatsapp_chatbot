@@ -16,6 +16,15 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
+const defaultMessage = `Here's what you can do:
+
+1️⃣ Upload a receipt
+2️⃣ View purchase history
+3️⃣ Check loyalty points & rewards
+4️⃣ Contact support agent
+
+Type *help* to see this again.`;
+
 const {
   logToFile,
   getChatState,
@@ -76,8 +85,6 @@ app.post('/whatsapp', async (req, res) => {
     return sendReply(res, 'There was an error processing your profile. Please try again later.');
   }
 
-  console.log(from)
-
 
   const state = await getChatState(from);
 
@@ -92,7 +99,7 @@ app.post('/whatsapp', async (req, res) => {
         const imageBuffer = await fetchImageFromTwilio(mediaUrl);
 
         
-        await uploadReceiptImage(
+        const result = await uploadReceiptImage(
         imageBuffer,
         `receipt_${profileId}_${Date.now()}.jpg`,
         profileId
@@ -102,10 +109,44 @@ app.post('/whatsapp', async (req, res) => {
         await updateChatState(from, { expectingImage: false });
 
 
-        return sendReply(
-        res,
-        '🧾 Thank you — your receipt has been uploaded successfully. Our team will review it shortly.'
-        );
+      //   if (result.fraud_result.decision === 'REJECT') {
+      //     console.log("reject")
+      //   return sendReply(
+      //     res,
+      //     `❌ *Receipt Rejected*\n\n` +
+      //     `This receipt has been flagged as high risk.\n\n` +
+      //     `*Fraud Score:* ${result.fraud_result.score}/100\n\n` +
+      //     `*Reasons:*\n${result.fraud_result.reasons.slice(0, 3).map(r => `• ${r}`).join('\n')}\n\n` +
+      //     `Please upload a clear photo of an *original receipt*.`
+      //   );
+      // }
+      
+      // if (result.fraud_result.decision === 'REVIEW') {
+      //   console.log("review")
+      //   return sendReply(
+      //     res,
+      //     `🟡 *Receipt Submitted for Review*\n\n` +
+      //     `Store: ${result.parsed_data.store_name || 'Processing...'}\n` +
+      //     `Amount: ${result.parsed_data.currency || '฿'} ${result.parsed_data.total_amount || 'N/A'}\n\n` +
+      //     `*Status:* Under manual review\n` +
+      //     `*Risk Score:* ${result.fraud_result.score}/100\n\n` +
+      //     `We'll verify and notify you within 24 hours.`
+      //   );
+      // }
+      
+      // console.log("accept")
+      // // ACCEPT
+      // return sendReply(
+      //   res,
+      //   `✅ *Receipt Accepted!*\n\n` +
+      //   `Store: ${result.parsed_data.store_name || 'Receipt uploaded'}\n` +
+      //   `Amount: ${result.parsed_data.currency || '฿'} ${result.parsed_data.total_amount || 'N/A'}\n` +
+      //   `Date: ${result.parsed_data.purchase_date || 'N/A'}\n\n` +
+      //   `*Risk Score:* ${result.fraud_result.score}/100 ✓\n\n` +
+      //   `Thank you for submitting your receipt!`
+      // );
+
+      return sendReply(res, '🧾 Thank you — your receipt has been uploaded successfully. Our team will review it shortly.');
 
     } catch (err) {
         logToFile(`[error] Receipt upload failed: ${err.message}`);
@@ -113,15 +154,7 @@ app.post('/whatsapp', async (req, res) => {
     }
   }
 
-  
-  const defaultMessage = `Here’s what you can do:
 
-1️⃣ Upload a receipt
-2️⃣ View purchase history
-3️⃣ Check loyalty points & rewards
-4️⃣ Contact support agent
-
-Type *help* to see this again.`;
 
   if (/help/i.test(body)) {
     return sendReply(res, defaultMessage);
@@ -268,25 +301,28 @@ Type *help* to see this again.`;
 
 const TEMPLATE_MAP = {
   otp_login: {
-    contentSid: 'HX907d9dfddd7d90627d2000c5e396cac2'
+    contentSid: 'HXa83dae8644668753ede2d6399d240a1a'
   },
   receipt_processed: {
-    contentSid: 'HXd7bf38a282b67d30bb3a0c98cbebeafb'
+    contentSid: 'HXcbc467bb689e70d6ef952e1bbbb67a3a'
   },
   loyalty_points_earned: {
-    contentSid: 'HXcf05356c153974ef490f326741cd174e'
+    contentSid: 'HXfdfbba9819f103e0fae544997350cf3b'
   },
   reward_redemption: {
-    contentSid: 'HXb7de458f1be8cb80bb085fc65671836d'
+    contentSid: 'HX1a299b161936b0281ed4c7dcd24ea434'
   },
-  reward_fulfilled: {
-    contentSid: 'HXd19dff3b867b2341dcac59c17556ac98'
+  reward_request_confirmation: {
+    contentSid: 'HX9e0b92c8b13caeabb78b729271aa744b'
   },
   reward_cancelled: {
-    contentSid: 'HX19116ef948a322a0040b8fe20cc572ab'
+    contentSid: 'HXf5e41934c379fceca43bfb2f80d68c17'
   },
   reward_pending: {
-    contentSid: 'HX2ac8f2a3bde6d15a91d42d07ce2264c5'
+    contentSid: 'HX68824005f8e305ccd2b2e8de1f51b2af'
+  },
+  how_to_use_service: {
+    contentSid: 'HXd87581d945c882e6dfd46a1b4094f789'
   }
 };
 
@@ -311,12 +347,10 @@ app.post('/whatsapp/notify-user', async (req, res) => {
     let twilioResponse;
     let usedFallback = false;
 
-    // =============================
-    // 1️⃣ Try template if requested
-    // =============================
+    
     if (use_template && template_name && TEMPLATE_MAP[template_name]) {
       try {
-        // Build contentVariables: { "1": "...", "2": "..." }
+     
         const contentVariables = {};
         template_params.forEach((value, index) => {
           contentVariables[String(index + 1)] = String(value);
@@ -339,7 +373,7 @@ app.post('/whatsapp/notify-user', async (req, res) => {
           `[info] Template "${template_name}" sent to ${phone}. SID: ${twilioResponse.sid}`
         );
       } catch (templateError) {
-        // 🚨 Template failed → fallback to text
+    
         usedFallback = true;
 
         logToFile(
@@ -347,16 +381,14 @@ app.post('/whatsapp/notify-user', async (req, res) => {
         );
       }
     } else if (use_template) {
-      // Template requested but invalid
+      
       usedFallback = true;
       logToFile(
         `[warn] Invalid or missing template_name "${template_name}". Falling back to text message.`
       );
     }
 
-    // =============================
-    // 2️⃣ Fallback / normal message
-    // =============================
+    
     if (!twilioResponse) {
       if (!message) {
         return res.status(400).json({
@@ -376,9 +408,23 @@ app.post('/whatsapp/notify-user', async (req, res) => {
       );
     }
 
-    // =============================
-    // 3️⃣ Final response (ONCE)
-    // =============================
+
+    // Wait a moment before sending the menu (so messages arrive in order)
+    setTimeout(async () => {
+      try {
+        await client.messages.create({
+          from: 'whatsapp:+15557969091',
+          to: `whatsapp:${phone}`,
+          contentSid: TEMPLATE_MAP["how_to_use_service"].contentSid,
+        });
+        
+        logToFile(`[info] Default menu sent to ${phone}`);
+      } catch (menuError) {
+        logToFile(`[error] Failed to send default menu to ${phone}: ${menuError.message}`);
+      }
+    }, 1500); // 1.5 second delay
+
+    
     return res.json({
       success: true,
       sid: twilioResponse.sid,

@@ -8,6 +8,10 @@ const vision = require('@google-cloud/vision');
 const visionClient = new vision.ImageAnnotatorClient();
 
 const chatStateStore = new Map();
+const { analyzeImageMetadata, checkImageQuality } = require('./fraud-detection/metadata-check');
+const { matchMerchantTemplate } = require('./fraud-detection/merchant-templates');
+const { validateReceiptWithOpenAI } = require('./fraud-detection/openai-validator');
+const { calculateFraudScore, getImageHash } = require('./fraud-detection/scoring');
 
 const {
   WP_USER,
@@ -154,6 +158,47 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
 
   const token = getJwtToken();
 
+  // ===== 1. FRAUD DETECTION BEFORE UPLOAD =====
+  
+  logToFile(`[fraud] Starting fraud detection pipeline...`);
+  
+  // Image Metadata Analysis
+  const metaSignals = await analyzeImageMetadata(imageBuffer);
+  logToFile(`[fraud] Metadata: ${metaSignals.redFlags.length} red flags`);
+  
+  // Image Quality Check
+  const qualityCheck = await checkImageQuality(imageBuffer);
+  logToFile(`[fraud] Quality: tooPerfect=${qualityCheck.tooPerfect}`);
+  
+  // Calculate image hash
+  const imageHash = getImageHash(imageBuffer);
+  
+  // Google Vision OCR
+  const rawText = await extractReceiptText(imageBuffer);
+  logToFile(`[info] OCR extracted ${rawText.length} characters`);
+  
+  // Merchant Template Validation
+  const templateCheck = matchMerchantTemplate(rawText, 'TH');
+  logToFile(`[fraud] Template: ${templateCheck.matched}, score=${templateCheck.score}`);
+  
+  // OpenAI Semantic Validation
+  const merchantCandidates = templateCheck.template ? [templateCheck.template.displayName] : [];
+  const openAiAssessment = await validateReceiptWithOpenAI(rawText, 'TH', merchantCandidates);
+  logToFile(`[fraud] OpenAI likelihood: ${openAiAssessment.fraud_likelihood}`);
+  
+  // Calculate Final Fraud Score
+  const fraudResult = await calculateFraudScore({
+    metaSignals,
+    qualityCheck,
+    templateCheck,
+    openAiAssessment,
+    imageHash,
+    wpUrl: WP_URL,
+    wpAuth: token
+  });
+  
+  logToFile(`[fraud] DECISION: ${fraudResult.decision}, score=${fraudResult.score}`);
+
   const formData = new FormData();
 
   formData.append('file', bufferToStream(imageBuffer), {
@@ -183,8 +228,8 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
     logToFile(`[info] WP upload success: ${JSON.stringify(uploadResponse.data)}`);
 
     // 2️⃣ Extract text with Google Vision
-    const rawText = await extractReceiptText(imageBuffer);
-    logToFile(`[info] Raw OCR text: ${rawText}`);
+    // const rawText = await extractReceiptText(imageBuffer);
+    // logToFile(`[info] Raw OCR text: ${rawText}`);
 
     // 3️⃣ Parse with OpenAI
     const parsed = await parseReceipt(rawText);
@@ -202,7 +247,12 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
           total_amount: parsed.total_amount || null,
           currency: parsed.currency || 'THB',
           items: parsed.items || [],
-          raw_text: rawText
+          raw_text: rawText,
+          // Fraud detection data
+          image_hash: imageHash,
+          fraud_score: fraudResult.score,
+          fraud_decision: fraudResult.decision,
+          fraud_reasons: fraudResult.reasons
         },
         {
           headers: {
@@ -216,10 +266,16 @@ async function uploadReceiptImage(imageBuffer,filename, profileId) {
       logToFile(`[info] Receipt details stored: ${JSON.stringify(updateResponse.data)}`);
       
       return {
-        success: true,
+        ...updateResponse.data,
         receipt_id: receiptId,
-        receipt_data: parsed,
-        wordpress_response: updateResponse.data
+        parsed_data: {
+          store_name: parsed.store_name,
+          purchase_date: parsed.purchase_date,
+          total_amount: parsed.total_amount,
+          currency: parsed.currency
+        },
+        fraud_result: fraudResult,
+        openai_assessment: openAiAssessment
       };
 
     } catch (updateError) {
