@@ -88,6 +88,8 @@ app.post('/whatsapp', async (req, res) => {
 
   const state = await getChatState(from);
 
+  console.log("chat state", state.expectingImage, req.body.NumMedia)
+
 
   if (state.expectingImage && req.body.NumMedia === '1') {
 
