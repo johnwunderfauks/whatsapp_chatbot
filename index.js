@@ -145,7 +145,7 @@ app.post('/whatsapp', async (req, res) => {
       //   `*Risk Score:* ${result.fraud_result.score}/100 ✓\n\n` +
       //   `Thank you for submitting your receipt!`
       // );
-
+      console.log("send receipt acceptance reply")
       return sendReply(res, '🧾 Thank you — your receipt has been uploaded successfully. Our team will review it shortly.');
 
     } catch (err) {
