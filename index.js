@@ -97,18 +97,26 @@ app.post('/whatsapp', async (req, res) => {
     logToFile(`[info] Twilio receipt media received: ${mediaUrl}`);
 
     try {
-        
-        const imageBuffer = await fetchImageFromTwilio(mediaUrl);
 
-        
-        const result = await uploadReceiptImage(
-        imageBuffer,
-        `receipt_${profileId}_${Date.now()}.jpg`,
-        profileId
-        );
+        sendReply(res, '📸 Receipt received! Processing your image now...');
 
-        
         await updateChatState(from, { expectingImage: false });
+
+        processReceiptAsync(mediaUrl, from, profileId).catch(err => {
+          logToFile(`[error] Background processing failed: ${err.message}`);
+        });
+        
+        // const imageBuffer = await fetchImageFromTwilio(mediaUrl);
+
+        
+        // const result = await uploadReceiptImage(
+        // imageBuffer,
+        // `receipt_${profileId}_${Date.now()}.jpg`,
+        // profileId
+        // );
+
+        
+        
 
 
       //   if (result.fraud_result.decision === 'REJECT') {
@@ -148,7 +156,8 @@ app.post('/whatsapp', async (req, res) => {
       //   `Thank you for submitting your receipt!`
       // );
       console.log("send receipt acceptance reply!!")
-      return sendReply(res, '🧾 Thank you — your receipt has been uploaded successfully. Our team will review it shortly.');
+      // return sendReply(res, '🧾 Thank you — your receipt has been uploaded successfully. Our team will review it shortly.');
+      return ;
 
     } catch (err) {
         logToFile(`[error] Receipt upload failed: ${err.message}`);
@@ -244,6 +253,54 @@ app.post('/whatsapp', async (req, res) => {
     //   fallback
   return sendReply(res, defaultMessage);
 });
+
+async function processReceiptAsync(mediaUrl, phone, profileId) {
+  try {
+    logToFile(`[info] Starting background processing for ${phone}`);
+    
+    
+    const imageBuffer = await fetchImageFromTwilio(mediaUrl);
+    logToFile(`[info] Image downloaded, size: ${imageBuffer.length} bytes`);
+    
+    const result = await uploadReceiptImage(
+      imageBuffer,
+      `receipt_${profileId}_${Date.now()}.jpg`,
+      profileId
+    );
+    
+    logToFile(`[info] Processing complete. Fraud score: ${result.fraud_result.score}, Decision: ${result.fraud_result.decision}`);
+    
+    
+    setTimeout(async () => {
+      try {
+        await client.messages.create({
+          from: 'whatsapp:+15557969091',
+          to: `whatsapp:${phone}`,
+          body: defaultMessage
+        });
+        logToFile(`[info] Menu sent to ${phone}`);
+      } catch (menuErr) {
+        logToFile(`[error] Menu send failed: ${menuErr.message}`);
+      }
+    }, 2000);
+    
+  } catch (error) {
+    logToFile(`[error] Receipt processing failed: ${error.message}`);
+    logToFile(`[error] Stack: ${error.stack}`);
+    
+    try {
+      await client.messages.create({
+        from: 'whatsapp:+15557969091',
+        to: `whatsapp:${phone}`,
+        body: '❌ There was an error processing your receipt. Please try uploading again or contact support.'
+      });
+    } catch (sendErr) {
+      logToFile(`[error] Failed to send error message: ${sendErr.message}`);
+    }
+  }
+}
+
+
 
 // app.post('/whatsapp/notify-user', async (req, res) => {
 //   try {
