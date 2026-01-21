@@ -414,11 +414,12 @@ app.post('/whatsapp/notify-user', async (req, res) => {
     // Wait a moment before sending the menu (so messages arrive in order)
     setTimeout(async () => {
       try {
-        await client.messages.create({
-          from: 'whatsapp:+15557969091',
-          to: `whatsapp:${phone}`,
-          contentSid: TEMPLATE_MAP["how_to_use_service"].contentSid,
-        });
+        // await client.messages.create({
+        //   from: 'whatsapp:+15557969091',
+        //   to: `whatsapp:${phone}`,
+        //   contentSid: TEMPLATE_MAP["how_to_use_service"].contentSid,
+        // });
+        sendReply(res, defaultMessage);
         
         logToFile(`[info] Default menu sent to ${phone}`);
       } catch (menuError) {
