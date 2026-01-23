@@ -119,7 +119,7 @@ const merchantTemplates = [
   }
 ];
 
-function matchMerchantTemplate(ocrText, countryHint = 'TH') {
+function matchMerchantTemplate(ocrText, countryHint = 'SG') {
   const t = ocrText.toLowerCase();
   
   const candidates = merchantTemplates

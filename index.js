@@ -6,7 +6,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 require('dotenv').config();
 const { job } = require('./keepAlive');
-
+const receiptTimers = new Map();
 
 
 const twilio = require('twilio');
@@ -30,7 +30,7 @@ const {
   getChatState,
   updateChatState,
   checkOrCreateUserProfile,
-  uploadReceiptImage,
+  uploadReceiptImages,
   getPurchaseHistory,
   getLoyaltyPoints,
   fetchImageFromTwilio,
@@ -91,77 +91,103 @@ app.post('/whatsapp', async (req, res) => {
   console.log("chat state", state.expectingImage, req.body.NumMedia)
 
 
-  if (state.expectingImage && req.body.NumMedia === '1') {
+  if (state.expectingImage && req.body.NumMedia && parseInt(req.body.NumMedia) > 0) {
+
+    // const numMedia = parseInt(req.body.NumMedia);
+    // logToFile(`[info] Received ${numMedia} image(s) from ${from}`);
+
+    // try {
+    //   // ✅ Send immediate acknowledgment
+    //   if (numMedia === 1) {
+    //     sendReply(res, '📸 Receipt received! Processing your image now...');
+    //   } else {
+    //     sendReply(res, `📸 Received ${numMedia} images! Processing your receipt now...`);
+    //   }
+      
+    //   // ✅ Clear state
+    //   await updateChatState(from, { expectingImage: false });
+      
+    //   // ✅ Collect all media URLs
+    //   const mediaUrls = [];
+    //   for (let i = 0; i < numMedia; i++) {
+    //     const mediaUrl = req.body[`MediaUrl${i}`];
+    //     if (mediaUrl) {
+    //       mediaUrls.push(mediaUrl);
+    //     }
+    //   }
+      
+    //   logToFile(`[info] Processing ${mediaUrls.length} images for ${from}`);
+      
+    //   // ✅ Process all images in background
+    //   processReceiptImagesAsync(mediaUrls, from, profileId).catch(err => {
+    //     logToFile(`[error] Background processing failed: ${err.message}`);
+    //   });
+      
+    //   return;
+
+    // } catch (err) {
+    //   logToFile(`[error] Receipt handling failed: ${err.message}`);
+      
+    //   if (!res.headersSent) {
+    //     return sendReply(res, 'There was an error uploading your receipt. Please try again later.');
+    //   }
+    // }
 
     const mediaUrl = req.body.MediaUrl0;
-    logToFile(`[info] Twilio receipt media received: ${mediaUrl}`);
 
     try {
+      // 1️⃣ Acknowledge ONLY ON FIRST IMAGE
+      if (!state.receiptImages || state.receiptImages.length === 0) {
+        sendReply(res, '📸 Receipt image received. We will process and review the submission.');
+      }
 
-        sendReply(res, '📸 Receipt received! Processing your image now...');
+      // 2️⃣ Append image to state
+      const images = Array.isArray(state.receiptImages)
+        ? [...state.receiptImages, mediaUrl]
+        : [mediaUrl];
 
-        await updateChatState(from, { expectingImage: false });
+      await updateChatState(from, {
+        receiptImages: images
+      });
 
-        processReceiptAsync(mediaUrl, from, profileId).catch(err => {
+      logToFile(`[info] Collected ${images.length} receipt image(s) from ${from}`);
+
+      // 3️⃣ Reset processing timer
+      if (receiptTimers.has(from)) {
+        clearTimeout(receiptTimers.get(from));
+      }
+
+      const timer = setTimeout(async () => {
+        const finalState = await getChatState(from);
+        const finalImages = finalState.receiptImages || [];
+
+        logToFile(`[info] Processing ${finalImages.length} images for ${from}`);
+
+        // ✅ Clear state BEFORE processing
+        await updateChatState(from, {
+          expectingImage: false,
+          receiptImages: []
+        });
+
+        receiptTimers.delete(from);
+
+        // ✅ Process ONCE
+        processReceiptImagesAsync(finalImages, from, profileId).catch(err => {
           logToFile(`[error] Background processing failed: ${err.message}`);
         });
-        
-        // const imageBuffer = await fetchImageFromTwilio(mediaUrl);
 
-        
-        // const result = await uploadReceiptImage(
-        // imageBuffer,
-        // `receipt_${profileId}_${Date.now()}.jpg`,
-        // profileId
-        // );
+      }, 2000); // ⏱️ wait 2 seconds after last image
 
-        
-        
+      receiptTimers.set(from, timer);
 
-
-      //   if (result.fraud_result.decision === 'REJECT') {
-      //     console.log("reject")
-      //   return sendReply(
-      //     res,
-      //     `❌ *Receipt Rejected*\n\n` +
-      //     `This receipt has been flagged as high risk.\n\n` +
-      //     `*Fraud Score:* ${result.fraud_result.score}/100\n\n` +
-      //     `*Reasons:*\n${result.fraud_result.reasons.slice(0, 3).map(r => `• ${r}`).join('\n')}\n\n` +
-      //     `Please upload a clear photo of an *original receipt*.`
-      //   );
-      // }
-      
-      // if (result.fraud_result.decision === 'REVIEW') {
-      //   console.log("review")
-      //   return sendReply(
-      //     res,
-      //     `🟡 *Receipt Submitted for Review*\n\n` +
-      //     `Store: ${result.parsed_data.store_name || 'Processing...'}\n` +
-      //     `Amount: ${result.parsed_data.currency || '฿'} ${result.parsed_data.total_amount || 'N/A'}\n\n` +
-      //     `*Status:* Under manual review\n` +
-      //     `*Risk Score:* ${result.fraud_result.score}/100\n\n` +
-      //     `We'll verify and notify you within 24 hours.`
-      //   );
-      // }
-      
-      // console.log("accept")
-      // // ACCEPT
-      // return sendReply(
-      //   res,
-      //   `✅ *Receipt Accepted!*\n\n` +
-      //   `Store: ${result.parsed_data.store_name || 'Receipt uploaded'}\n` +
-      //   `Amount: ${result.parsed_data.currency || '฿'} ${result.parsed_data.total_amount || 'N/A'}\n` +
-      //   `Date: ${result.parsed_data.purchase_date || 'N/A'}\n\n` +
-      //   `*Risk Score:* ${result.fraud_result.score}/100 ✓\n\n` +
-      //   `Thank you for submitting your receipt!`
-      // );
-      console.log("send receipt acceptance reply!!")
-      // return sendReply(res, '🧾 Thank you — your receipt has been uploaded successfully. Our team will review it shortly.');
-      return ;
+      return;
 
     } catch (err) {
-        logToFile(`[error] Receipt upload failed: ${err.message}`);
+      logToFile(`[error] Receipt handling failed: ${err.message}`);
+
+      if (!res.headersSent) {
         return sendReply(res, 'There was an error uploading your receipt. Please try again later.');
+      }
     }
   }
 
@@ -254,16 +280,23 @@ app.post('/whatsapp', async (req, res) => {
   return sendReply(res, defaultMessage);
 });
 
-async function processReceiptAsync(mediaUrl, phone, profileId) {
+async function processReceiptImagesAsync(mediaUrls, phone, profileId) {
+  let receiptId = null;
+  const additionalImageIds = [];
   try {
-    logToFile(`[info] Starting background processing for ${phone}`);
+    logToFile(`[info] Processing ${mediaUrls.length} receipt images for ${phone}`);
     
     
-    const imageBuffer = await fetchImageFromTwilio(mediaUrl);
-    logToFile(`[info] Image downloaded, size: ${imageBuffer.length} bytes`);
+    const imageBuffers = [];
+
+    // 1️⃣ Download images
+    for (const url of mediaUrls) {
+      const buffer = await fetchImageFromTwilio(url);
+      imageBuffers.push(buffer);
+    }
     
-    const result = await uploadReceiptImage(
-      imageBuffer,
+    const result = await uploadReceiptImages(
+      imageBuffers,
       `receipt_${profileId}_${Date.now()}.jpg`,
       profileId
     );
@@ -285,6 +318,7 @@ async function processReceiptAsync(mediaUrl, phone, profileId) {
     }, 2000);
     
   } catch (error) {
+    console.log(error)
     logToFile(`[error] Receipt processing failed: ${error.message}`);
     logToFile(`[error] Stack: ${error.stack}`);
     
@@ -502,6 +536,8 @@ app.post('/whatsapp/notify-user', async (req, res) => {
     }
   }
 });
+
+
 
 app.listen(3000, () => {
   console.log('Express server listening on port 3000');

@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-async function validateReceiptWithOpenAI(ocrText, countryHint = 'TH', merchantCandidates = []) {
+async function validateReceiptWithOpenAI(ocrText, countryHint = 'SG', merchantCandidates = []) {
   const prompt = `You are a receipt fraud detection system.
 
 INPUTS:

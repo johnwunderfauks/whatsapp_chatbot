@@ -6,12 +6,13 @@ const FormData = require('form-data');
 const { Readable } = require('stream');
 const vision = require('@google-cloud/vision');
 const visionClient = new vision.ImageAnnotatorClient();
+const crypto = require('crypto');
 
 const chatStateStore = new Map();
 const { analyzeImageMetadata, checkImageQuality } = require('./fraud-detection/metadata-check');
 const { matchMerchantTemplate } = require('./fraud-detection/merchant-templates');
 const { validateReceiptWithOpenAI } = require('./fraud-detection/openai-validator');
-const { calculateFraudScore, getImageHash } = require('./fraud-detection/scoring');
+const { calculateFraudScore } = require('./fraud-detection/scoring');
 
 const {
   WP_USER,
@@ -19,6 +20,13 @@ const {
   WP_APP_PASSWORD,
   WP_URL = 'https://wunderfauksw18.sg-host.com/'
 } = process.env;
+
+const receiptFraudSignals = {
+    nonEnglish: false,
+    nonSingapore: false,
+    dateOutOfRange: false,
+    redFlags: []
+};
 
 
 function getJwtToken() {
@@ -70,13 +78,14 @@ async function parseReceipt(rawText) {
 ${rawText}
 
 Return JSON with:
+- receipt_id (string)
 - store_name (string)
 - purchase_date (string, format: YYYY-MM-DD if possible)
 - total_amount (string, number only)
 - items (array of strings, item names with prices if visible)
 - currency (string, e.g. "USD", "THB")
 
-Example: {"store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"150.50","items":["Water 15.00","Sandwich 35.50"],"currency":"THB"}`
+Example: {"receipt_id": "12345","store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"150.50","items":["Water 15.00","Sandwich 35.50"],"currency":"THB"}`
         }],
         temperature: 0,
         max_tokens: 500
@@ -93,6 +102,8 @@ Example: {"store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"1
     
     // Remove markdown code blocks if present
     const cleanText = text.replace(/```json\n?|```\n?/g, '');
+
+    console.log(cleanText)
     
     return JSON.parse(cleanText);
     
@@ -151,149 +162,324 @@ async function checkOrCreateUserProfile({ phone, name }) {
   }
 }
 
+async function analyzeMultipleImages(imageBuffers) {
+  const results = [];
 
-async function uploadReceiptImage(imageBuffer,filename, profileId) {
+  for (let i = 0; i < imageBuffers.length; i++) {
+    const buffer = imageBuffers[i];
 
+    const meta = await analyzeImageMetadata(buffer);
+    const quality = await checkImageQuality(buffer);
+    const hash = getImageHash(buffer);
+
+    results.push({
+      index: i,
+      isPrimary: i === 0,
+      meta,
+      quality,
+      hash
+    });
+  }
+
+  return results;
+}
+
+
+async function uploadReceiptImages(imageBuffers, filenames, profileId) {
   if (!profileId) throw new Error('Profile ID is not defined');
 
   const token = getJwtToken();
+  logToFile(`[fraud] Starting MULTI-IMAGE fraud detection pipeline...`);
 
-  // ===== 1. FRAUD DETECTION BEFORE UPLOAD =====
+  // =============================
+  // 1️⃣ PER-IMAGE ANALYSIS
+  // =============================
+  const imageAnalyses = [];
+  const ocrResults = [];
+
+  for (let i = 0; i < imageBuffers.length; i++) {
+    const buffer = imageBuffers[i];
+    const isPrimary = i === 0;
+
+    logToFile(`[fraud] Analyzing image ${i + 1}/${imageBuffers.length}`);
+
+    const metaSignals = await analyzeImageMetadata(buffer);
+    const qualityCheck = await checkImageQuality(buffer);
+    const imageHash = getImageHash(buffer);
+    const rawText = await extractReceiptText(buffer);
+
+    imageAnalyses.push({
+      index: i,
+      isPrimary,
+      metaSignals,
+      qualityCheck,
+      imageHash
+    });
+
+    ocrResults.push({
+      index: i,
+      text: rawText
+    });
+
+    logToFile(
+      `[fraud] Image ${i + 1}: flags=${metaSignals.redFlags.length}, tooPerfect=${qualityCheck.tooPerfect}`
+    );
+  }
+
+
+  // =============================
+  // 3️⃣ OCR MERGE (ALL IMAGES)
+  // =============================
+  const combinedOCR = ocrResults
+    .map(r => r.text)
+    .join('\n\n---\n\n');
+
+  logToFile(`[info] Combined OCR length: ${combinedOCR.length}`);
+
+  // =============================
+  // 4️⃣ MERCHANT TEMPLATE CHECK
+  // =============================
+  const templateCheck = matchMerchantTemplate(combinedOCR, 'SG');
+  logToFile(`[fraud] Template matched=${templateCheck.matched}, score=${templateCheck.score}`);
+
+  // =============================
+  // 5️⃣ OPENAI SEMANTIC CHECK
+  // =============================
+  const merchantCandidates = templateCheck.template
+    ? [templateCheck.template.displayName]
+    : [];
+
+  const openAiAssessment = await validateReceiptWithOpenAI(
+    combinedOCR,
+    'SG',
+    merchantCandidates
+  );
+
+  logToFile(`[fraud] OpenAI likelihood=${openAiAssessment.fraud_likelihood}`);
+
+
+  if (!isMostlyEnglish(combinedOCR)) {
+    receiptFraudSignals.nonEnglish = true;
+    receiptFraudSignals.redFlags.push('Receipt language is not English');
+  }
+
+  // =============================
+  //  PARSE + STORE RECEIPT
+  // =============================
+  const parsed = await parseReceipt(combinedOCR);
+
+  // =============================
+  // 2️⃣ AGGREGATE IMAGE FRAUD
+  // =============================
+  const imageFraudSummary = await summarizeImageFraudSignals(imageAnalyses,parsed,WP_URL,WP_APP_PASSWORD);
   
-  logToFile(`[fraud] Starting fraud detection pipeline...`);
-  
-  // Image Metadata Analysis
-  const metaSignals = await analyzeImageMetadata(imageBuffer);
-  logToFile(`[fraud] Metadata: ${metaSignals.redFlags.length} red flags`);
-  
-  // Image Quality Check
-  const qualityCheck = await checkImageQuality(imageBuffer);
-  logToFile(`[fraud] Quality: tooPerfect=${qualityCheck.tooPerfect}`);
-  
-  // Calculate image hash
-  const imageHash = getImageHash(imageBuffer);
-  
-  // Google Vision OCR
-  const rawText = await extractReceiptText(imageBuffer);
-  logToFile(`[info] OCR extracted ${rawText.length} characters`);
-  
-  // Merchant Template Validation
-  const templateCheck = matchMerchantTemplate(rawText, 'TH');
-  logToFile(`[fraud] Template: ${templateCheck.matched}, score=${templateCheck.score}`);
-  
-  // OpenAI Semantic Validation
-  const merchantCandidates = templateCheck.template ? [templateCheck.template.displayName] : [];
-  const openAiAssessment = await validateReceiptWithOpenAI(rawText, 'TH', merchantCandidates);
-  logToFile(`[fraud] OpenAI likelihood: ${openAiAssessment.fraud_likelihood}`);
-  
-  // Calculate Final Fraud Score
+  console.log(imageFraudSummary)
+
+  if (
+    parsed.currency !== 'SGD' &&
+    !looksLikeSingapore(combinedOCR)
+  ) {
+    receiptFraudSignals.nonSingapore = true;
+    receiptFraudSignals.redFlags.push('Receipt does not appear to be from Singapore');
+  }
+
+  if (!isWithinLastTwoWeeks(parsed.purchase_date)) {
+    receiptFraudSignals.dateOutOfRange = true;
+    receiptFraudSignals.redFlags.push('Receipt date is older than 14 days');
+  }
+
+  // =============================
+  // 6️⃣ FINAL FRAUD SCORE
+  // =============================
   const fraudResult = await calculateFraudScore({
-    metaSignals,
-    qualityCheck,
+    imageFraudSummary,
     templateCheck,
     openAiAssessment,
-    imageHash,
+    receiptFraudSignals,
     wpUrl: WP_URL,
     wpAuth: token
   });
-  
-  logToFile(`[fraud] DECISION: ${fraudResult.decision}, score=${fraudResult.score}`);
 
-  const formData = new FormData();
+  logToFile(`[fraud] DECISION=${fraudResult.decision}, score=${fraudResult.score}`);
 
-  formData.append('file', bufferToStream(imageBuffer), {
-    filename,
-    contentType: 'image/jpeg'
-  });
-  formData.append('title', 'Receipt Upload');
-  formData.append('alt_text', 'Uploaded receipt');
-  formData.append('description', 'Receipt image uploaded by user');
-  formData.append('profile_id', profileId);
+  // =============================
+  // 7️⃣ UPLOAD PRIMARY IMAGE
+  // =============================
+  const primaryForm = new FormData();
+  primaryForm.append(
+    'file',
+    bufferToStream(imageBuffers[0]),
+    { filename: filenames[0], contentType: 'image/jpeg' }
+  );
 
-  try {
-    const uploadResponse = await axios.post(
-      `${WP_URL}/wp-json/custom/v1/upload`,
-      formData,
-      {
-        headers: {
-          Authorization: `Basic ${token}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'WhatsApp-Bot/1.0',
-          ...formData.getHeaders()
-        }
+  primaryForm.append('profile_id', profileId);
+  primaryForm.append('total_images', imageBuffers.length);
+
+  const uploadResponse = await axios.post(
+    `${WP_URL}/wp-json/custom/v1/upload`,
+    primaryForm,
+    {
+      headers: {
+        Authorization: `Basic ${token}`,
+        ...primaryForm.getHeaders()
       }
-    );
+    }
+  );
 
+  const receiptId = uploadResponse.data.receipt_id;
+  logToFile(`[info] Primary image uploaded. receipt_id=${receiptId}`);
 
-    logToFile(`[info] WP upload success: ${JSON.stringify(uploadResponse.data)}`);
+  // =============================
+  // 8️⃣ UPLOAD ADDITIONAL IMAGES
+  // =============================
+  if (imageBuffers.length > 1) {
+    for (let i = 1; i < imageBuffers.length; i++) {
+      const extraForm = new FormData();
+      extraForm.append(
+        'file',
+        bufferToStream(imageBuffers[i]),
+        { filename: filenames[i], contentType: 'image/jpeg' }
+      );
+      extraForm.append('receipt_id', receiptId);
+      extraForm.append('index', i);
 
-    // 2️⃣ Extract text with Google Vision
-    // const rawText = await extractReceiptText(imageBuffer);
-    // logToFile(`[info] Raw OCR text: ${rawText}`);
-
-    // 3️⃣ Parse with OpenAI
-    const parsed = await parseReceipt(rawText);
-    logToFile(`[info] Parsed receipt: ${JSON.stringify(parsed)}`);
-
-    // 4️⃣ Store parsed data in WordPress
-    const receiptId = uploadResponse.data.receipt_id; // This comes from your upload response
-    try {
-      const updateResponse = await axios.post(
-        `${WP_URL}/wp-json/custom/v1/receipt/${receiptId}`,
-        {
-          profile_id: profileId,
-          store_name: parsed.store_name || 'Unknown Store',
-          purchase_date: parsed.purchase_date || null,
-          total_amount: parsed.total_amount || null,
-          currency: parsed.currency || 'THB',
-          items: parsed.items || [],
-          raw_text: rawText,
-          // Fraud detection data
-          image_hash: imageHash,
-          fraud_score: fraudResult.score,
-          fraud_decision: fraudResult.decision,
-          fraud_reasons: fraudResult.reasons
-        },
+      await axios.post(
+        `${WP_URL}/wp-json/custom/v1/upload`,
+        extraForm,
         {
           headers: {
             Authorization: `Basic ${token}`,
-            'Content-Type': 'application/json',
-            'User-Agent': 'WhatsApp-Bot/1.0'
+            ...extraForm.getHeaders()
           }
         }
       );
-
-      logToFile(`[info] Receipt details stored: ${JSON.stringify(updateResponse.data)}`);
-      
-      return {
-        ...updateResponse.data,
-        receipt_id: receiptId,
-        parsed_data: {
-          store_name: parsed.store_name,
-          purchase_date: parsed.purchase_date,
-          total_amount: parsed.total_amount,
-          currency: parsed.currency
-        },
-        fraud_result: fraudResult,
-        openai_assessment: openAiAssessment
-      };
-
-    } catch (updateError) {
-      logToFile(`[error] Failed to store receipt details: ${updateError.message}`);
-      // Still return success since image was uploaded, just log the error
-      return {
-        success: true,
-        receipt_id: receiptId,
-        receipt_data: parsed,
-        note: 'Image uploaded but details storage failed'
-      };
+    }
   }
 
-  } catch (err) {
-    logToFile(`[error] Error uploading image to WordPress: ${err.message}`);
-    throw new Error('Failed to upload image to WordPress');
-  }
+  
+
+  await axios.post(
+    `${WP_URL}/wp-json/custom/v1/receipt/${receiptId}`,
+    {
+      profile_id: profileId,
+      receipt_id: parsed.receipt_id || 'Unknown Receipt ID',
+      store_name: parsed.store_name || 'Unknown Store',
+      purchase_date: parsed.purchase_date || null,
+      total_amount: parsed.total_amount || null,
+      currency: parsed.currency || 'SGD',
+      items: parsed.items || [],
+      raw_text: combinedOCR,
+
+      // Fraud data
+      fraud_score: fraudResult.score,
+      fraud_decision: fraudResult.decision,
+      fraud_reasons: fraudResult.reasons,
+      image_fraud_summary: imageFraudSummary,
+      per_image_analysis: imageAnalyses
+    },
+    {
+      headers: {
+        Authorization: `Basic ${token}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+
+  return {
+    receipt_id: receiptId,
+    parsed_data: parsed,
+    fraud_result: fraudResult,
+    openai_assessment: openAiAssessment,
+    total_images: imageBuffers.length
+  };
 }
+
+async function summarizeImageFraudSignals(
+  imageAnalyses,
+  parsed,
+  wpUrl,
+  wpAuth
+) {
+  const summary = {
+    anyAiDetected: false,
+    anyTooPerfect: false,
+    duplicateImages: false,
+    duplicateInSystem: false,
+    redFlags: [],
+    imageCount: imageAnalyses.length
+  };
+
+  const localHashes = new Set();
+
+  for (const img of imageAnalyses) {
+
+    // ======================
+    // AI software detection
+    // ======================
+    if (img.metaSignals.aiSoftwareTag) {
+      summary.anyAiDetected = true;
+      summary.redFlags.push(
+        `Image ${img.index + 1}: AI software detected (${img.metaSignals.softwareName || 'unknown'})`
+      );
+    }
+
+    // ======================
+    // Quality check
+    // ======================
+    if (img.qualityCheck.tooPerfect) {
+      summary.anyTooPerfect = true;
+      summary.redFlags.push(
+        `Image ${img.index + 1}: Unusually clean / low noise`
+      );
+    }
+
+    // ======================
+    // Local duplicate check
+    // ======================
+    if (localHashes.has(img.imageHash)) {
+      summary.duplicateImages = true;
+      summary.redFlags.push(
+        `Image ${img.index + 1}: Duplicate image in same upload`
+      );
+    }
+    localHashes.add(img.imageHash);
+
+    // ======================
+    // Cross-system duplicate check
+    // ======================
+    // console.log("wp url",wpUrl)
+    const existsInSystem = await checkDuplicateHash(
+      parsed.receipt_id,
+      wpUrl,
+      wpAuth
+    );
+
+    if (existsInSystem) {
+      summary.duplicateInSystem = true;
+      summary.redFlags.push(
+        `Image ${img.index + 1}: Previously used receipt image`
+      );
+    }
+
+    // ======================
+    // Metadata red flags
+    // ======================
+    if (img.metaSignals.redFlags?.length) {
+      for (const flag of img.metaSignals.redFlags) {
+        summary.redFlags.push(
+          `Image ${img.index + 1}: ${flag}`
+        );
+      }
+    }
+  }
+
+  // De-duplicate messages
+  summary.redFlags = [...new Set(summary.redFlags)];
+
+  return summary;
+}
+
+
 
 async function getPurchaseHistory(profileId) {
   const token = getJwtToken();
@@ -351,13 +537,64 @@ async function fetchImageFromTwilio(mediaUrl) {
   }
 }
 
+async function checkDuplicateHash(receipt_id, wpUrl, wpAuth) {
+  const token = getJwtToken();
+  try {
+    const response = await axios.post(
+      `${WP_URL}/wp-json/custom/v1/check-duplicate-hash`,
+      { receipt_id: receipt_id },
+      {
+        headers: {
+          'Authorization': `Basic ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 5000
+      }
+    );
+    
+    return response.data.is_duplicate || false;
+  } catch (error) {
+    console.error('Duplicate check error:', error.message);
+    return false;
+  }
+}
+
+function getImageHash(imageBuffer) {
+  return crypto.createHash('sha256').update(imageBuffer).digest('hex');
+}
+
+
+// basic level validators
+function isMostlyEnglish(text) {
+  const nonLatin = text.match(/[\u0E00-\u0E7F\u4E00-\u9FFF]/g); // Thai + CJK
+  return !nonLatin || nonLatin.length < text.length * 0.05;
+}
+
+function looksLikeSingapore(text) {
+  return /singapore|\bsg\b|\+65|\b\d{6}\b/i.test(text);
+}
+
+function isWithinLastTwoWeeks(dateStr) {
+  if (!dateStr) return false;
+
+  const receiptDate = new Date(dateStr);
+  if (isNaN(receiptDate)) return false;
+
+  const now = new Date();
+  const diffDays = (now - receiptDate) / (1000 * 60 * 60 * 24);
+
+  return diffDays >= 0 && diffDays <= 14;
+}
+
+
+
 module.exports = {
   getJwtToken,
   logToFile,
   getChatState,
   updateChatState,
   checkOrCreateUserProfile,
-  uploadReceiptImage,
+  uploadReceiptImages,
   getPurchaseHistory,
   getLoyaltyPoints,
   getAvailableRewards,
