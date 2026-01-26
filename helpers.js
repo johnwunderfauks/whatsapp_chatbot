@@ -237,13 +237,13 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
   logToFile(`[info] Combined OCR length: ${combinedOCR.length}`);
 
   // =============================
-  // 4️⃣ MERCHANT TEMPLATE CHECK
+  //  MERCHANT TEMPLATE CHECK
   // =============================
   const templateCheck = matchMerchantTemplate(combinedOCR, 'SG');
   logToFile(`[fraud] Template matched=${templateCheck.matched}, score=${templateCheck.score}`);
 
   // =============================
-  // 5️⃣ OPENAI SEMANTIC CHECK
+  //  OPENAI SEMANTIC CHECK
   // =============================
   const merchantCandidates = templateCheck.template
     ? [templateCheck.template.displayName]
@@ -269,7 +269,7 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
   const parsed = await parseReceipt(combinedOCR);
 
   // =============================
-  // 2️⃣ AGGREGATE IMAGE FRAUD
+  //  AGGREGATE IMAGE FRAUD
   // =============================
   const imageFraudSummary = await summarizeImageFraudSignals(imageAnalyses,parsed,WP_URL,WP_APP_PASSWORD);
   
@@ -289,7 +289,7 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
   }
 
   // =============================
-  // 6️⃣ FINAL FRAUD SCORE
+  //  FINAL FRAUD SCORE
   // =============================
   const fraudResult = await calculateFraudScore({
     imageFraudSummary,
@@ -303,7 +303,7 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
   logToFile(`[fraud] DECISION=${fraudResult.decision}, score=${fraudResult.score}`);
 
   // =============================
-  // 7️⃣ UPLOAD PRIMARY IMAGE
+  //  UPLOAD PRIMARY IMAGE
   // =============================
   const primaryForm = new FormData();
   primaryForm.append(
@@ -330,7 +330,7 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
   logToFile(`[info] Primary image uploaded. receipt_id=${receiptId}`);
 
   // =============================
-  // 8️⃣ UPLOAD ADDITIONAL IMAGES
+  //  UPLOAD ADDITIONAL IMAGES
   // =============================
   if (imageBuffers.length > 1) {
     for (let i = 1; i < imageBuffers.length; i++) {

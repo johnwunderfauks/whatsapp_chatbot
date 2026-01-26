@@ -501,16 +501,21 @@ app.post('/whatsapp/notify-user', async (req, res) => {
       );
     }
 
+    res.json({
+      success: true,
+      sid: twilioResponse.sid,
+      fallback_used: usedFallback
+    });
+
 
     // Wait a moment before sending the menu (so messages arrive in order)
     setTimeout(async () => {
       try {
-        // await client.messages.create({
-        //   from: 'whatsapp:+15557969091',
-        //   to: `whatsapp:${phone}`,
-        //   contentSid: TEMPLATE_MAP["how_to_use_service"].contentSid,
-        // });
-        sendReply(res, defaultMessage);
+        await client.messages.create({
+          from: 'whatsapp:+15557969091',
+          to: `whatsapp:${phone}`,
+          body: defaultMessage // Send as regular message, not using sendReply
+        });
         
         logToFile(`[info] Default menu sent to ${phone}`);
       } catch (menuError) {
@@ -519,11 +524,7 @@ app.post('/whatsapp/notify-user', async (req, res) => {
     }, 1500); // 1.5 second delay
 
     
-    return res.json({
-      success: true,
-      sid: twilioResponse.sid,
-      fallback_used: usedFallback
-    });
+    return;
 
   } catch (error) {
     logToFile(`[error] Notification failed: ${error.message}`);
