@@ -26,17 +26,17 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-const defaultMessage = `Here's what you can do:
+const defaultMessage = `Here are your options:
 
 1️⃣ Upload a receipt (📸 Image files only – JPG, JPEG, PNG)
 2️⃣ View purchase history
 3️⃣ Check loyalty points & rewards
-4️⃣ Contact support agent
+4️⃣ Contact/Support Instructions
 
 ⚠️ Please upload clear images of your receipt.
 PDF files are not supported.
 
-Type *help* to see this again.`;
+Type *help* to view the menu again.`;
 
 const {
   logToFile,
@@ -282,7 +282,7 @@ app.post('/whatsapp', async (req, res) => {
     /talk to/,
     /contact/
     ])) {
-    return sendReply(res, '💬 A support agent will contact you shortly.');
+    return sendReply(res, '💬 Please send your issue to support@naturellving.com');
   }
 
     //   fallback

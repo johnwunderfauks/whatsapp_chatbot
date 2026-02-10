@@ -483,26 +483,117 @@ async function summarizeImageFraudSignals(
 
 async function getPurchaseHistory(profileId) {
   const token = getJwtToken();
-
-  const { data } = await axios.get(
-    `${WP_URL}/wp-json/custom/v1/receipts`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
-          'User-Agent': 'WhatsApp-Bot/1.0' } }
-  );
-
-  return data;
+  
+  console.log('========================================');
+  console.log('📋 GET PURCHASE HISTORY DEBUG');
+  console.log('========================================');
+  console.log('Profile ID:', profileId);
+  console.log('WP_URL:', WP_URL);
+  console.log('Token:', token ? `${token.substring(0, 20)}...` : 'NULL');
+  console.log('Full URL:', `${WP_URL}/wp-json/custom/v1/receipts?profile_id=${profileId}`);
+  
+  try {
+    const { data } = await axios.get(
+      `${WP_URL}/wp-json/custom/v1/receipts`,
+      {
+        params: { profile_id: profileId },
+        headers: { 
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        }
+      }
+    );
+    
+    console.log('✅ Request successful');
+    console.log('Response data:', JSON.stringify(data, null, 2));
+    console.log('Number of receipts:', data?.receipts?.length || 0);
+    console.log('========================================\n');
+    
+    return data;
+    
+  } catch (error) {
+    console.error('❌ GET PURCHASE HISTORY ERROR');
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    
+    if (error.response) {
+      // Server responded with error
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('Response headers:', error.response.headers);
+    } else if (error.request) {
+      // Request made but no response
+      console.error('No response received');
+      console.error('Request details:', error.request);
+    } else {
+      // Error setting up request
+      console.error('Request setup error:', error.message);
+    }
+    
+    console.error('Full error object:', error);
+    console.log('========================================\n');
+    
+    throw error;
+  }
 }
 
 async function getLoyaltyPoints(profileId) {
   const token = getJwtToken();
-
-  const { data } = await axios.get(
-    `${WP_URL}/wp-json/custom/v1/user-profile`,
-    {params: { profile_id: profileId }, headers: { Authorization: `Basic ${token}`,'Content-Type': 'application/json',
-          'User-Agent': 'WhatsApp-Bot/1.0' } }
-  );
-
-  return data;
+  
+  console.log('========================================');
+  console.log('💎 GET LOYALTY POINTS DEBUG');
+  console.log('========================================');
+  console.log('Profile ID:', profileId);
+  console.log('WP_URL:', WP_URL);
+  console.log('Token:', token ? `${token.substring(0, 20)}...` : 'NULL');
+  console.log('Full URL:', `${WP_URL}/wp-json/custom/v1/user-profile?profile_id=${profileId}`);
+  
+  try {
+    const { data } = await axios.get(
+      `${WP_URL}/wp-json/custom/v1/user-profile`,
+      {
+        params: { profile_id: profileId },
+        headers: { 
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        }
+      }
+    );
+    
+    console.log('✅ Request successful');
+    console.log('Response data:', JSON.stringify(data, null, 2));
+    console.log('Loyalty points:', data?.loyalty_points || 0);
+    console.log('User name:', data?.name || 'N/A');
+    console.log('========================================\n');
+    
+    return data;
+    
+  } catch (error) {
+    console.error('❌ GET LOYALTY POINTS ERROR');
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    
+    if (error.response) {
+      // Server responded with error
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('Response headers:', error.response.headers);
+    } else if (error.request) {
+      // Request made but no response
+      console.error('No response received');
+      console.error('Request details:', error.request);
+    } else {
+      // Error setting up request
+      console.error('Request setup error:', error.message);
+    }
+    
+    console.error('Full error object:', error);
+    console.log('========================================\n');
+    
+    throw error;
+  }
 }
 
 
