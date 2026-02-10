@@ -7,6 +7,16 @@ app.use(bodyParser.json());
 require('dotenv').config();
 const { job } = require('./keepAlive');
 const receiptTimers = new Map();
+const { fromBuffer } = require("pdf2pic");
+
+const options = {
+  density: 100,
+  saveFilename: "pdf_image",
+  savePath: "./images",
+  format: "png",
+  width: 600,
+  height: 600
+};
 
 
 const twilio = require('twilio');
@@ -93,96 +103,91 @@ app.post('/whatsapp', async (req, res) => {
 
   if (state.expectingImage && req.body.NumMedia && parseInt(req.body.NumMedia) > 0) {
 
-    // const numMedia = parseInt(req.body.NumMedia);
-    // logToFile(`[info] Received ${numMedia} image(s) from ${from}`);
-
-    // try {
-    //   // ✅ Send immediate acknowledgment
-    //   if (numMedia === 1) {
-    //     sendReply(res, '📸 Receipt received! Processing your image now...');
-    //   } else {
-    //     sendReply(res, `📸 Received ${numMedia} images! Processing your receipt now...`);
-    //   }
-      
-    //   // ✅ Clear state
-    //   await updateChatState(from, { expectingImage: false });
-      
-    //   // ✅ Collect all media URLs
-    //   const mediaUrls = [];
-    //   for (let i = 0; i < numMedia; i++) {
-    //     const mediaUrl = req.body[`MediaUrl${i}`];
-    //     if (mediaUrl) {
-    //       mediaUrls.push(mediaUrl);
-    //     }
-    //   }
-      
-    //   logToFile(`[info] Processing ${mediaUrls.length} images for ${from}`);
-      
-    //   // ✅ Process all images in background
-    //   processReceiptImagesAsync(mediaUrls, from, profileId).catch(err => {
-    //     logToFile(`[error] Background processing failed: ${err.message}`);
-    //   });
-      
-    //   return;
-
-    // } catch (err) {
-    //   logToFile(`[error] Receipt handling failed: ${err.message}`);
-      
-    //   if (!res.headersSent) {
-    //     return sendReply(res, 'There was an error uploading your receipt. Please try again later.');
-    //   }
-    // }
-
-    const mediaUrl = req.body.MediaUrl0;
+    const numMedia = parseInt(req.body.NumMedia);
 
     try {
-      // 1️⃣ Acknowledge ONLY ON FIRST IMAGE
-      if (!state.receiptImages || state.receiptImages.length === 0) {
-        sendReply(res, '📸 Receipt image received. We will process and review the submission.');
+
+      // 1️⃣ Acknowledge ONLY on first media
+      if (!state.receiptFiles || state.receiptFiles.length === 0) {
+        sendReply(res, '📸 Receipt received. Processing now...');
       }
 
-      // 2️⃣ Append image to state
-      const images = Array.isArray(state.receiptImages)
-        ? [...state.receiptImages, mediaUrl]
-        : [mediaUrl];
+      let files = Array.isArray(state.receiptFiles)
+        ? [...state.receiptFiles]
+        : [];
 
+      // 2️⃣ Loop through all uploaded media
+      for (let i = 0; i < numMedia; i++) {
+
+        const mediaUrl = req.body[`MediaUrl${i}`];
+        const mediaType = req.body[`MediaContentType${i}`];
+
+        if (!mediaUrl || !mediaType) continue;
+
+        // ✅ Allow images
+        if (mediaType.startsWith("image/")) {
+          files.push({
+            url: mediaUrl,
+            type: "image"
+          });
+          continue;
+        }
+
+        // ✅ Allow PDF
+        if (mediaType === "application/pdf") {
+          files.push({
+            url: mediaUrl,
+            type: "pdf"
+          });
+          continue;
+        }
+
+        // ❌ Reject unsupported types
+        logToFile(`[warn] Unsupported media type from ${from}: ${mediaType}`);
+        sendReply(res, "❌ Unsupported file type. Please send a receipt image or PDF only.");
+        return;
+      }
+
+      // 3️⃣ Save to state
       await updateChatState(from, {
-        receiptImages: images
+        receiptFiles: files
       });
 
-      logToFile(`[info] Collected ${images.length} receipt image(s) from ${from}`);
+      logToFile(`[info] Collected ${files.length} receipt file(s) from ${from}`);
 
-      // 3️⃣ Reset processing timer
+      // 4️⃣ Reset processing timer (debounce)
       if (receiptTimers.has(from)) {
         clearTimeout(receiptTimers.get(from));
       }
 
       const timer = setTimeout(async () => {
-        const finalState = await getChatState(from);
-        const finalImages = finalState.receiptImages || [];
 
-        logToFile(`[info] Processing ${finalImages.length} images for ${from}`);
+        const finalState = await getChatState(from);
+        const finalFiles = finalState.receiptFiles || [];
+
+        logToFile(`[info] Processing ${finalFiles.length} receipt file(s) for ${from}`);
 
         // ✅ Clear state BEFORE processing
         await updateChatState(from, {
           expectingImage: false,
-          receiptImages: []
+          receiptFiles: []
         });
 
         receiptTimers.delete(from);
 
         // ✅ Process ONCE
-        processReceiptImagesAsync(finalImages, from, profileId).catch(err => {
+        processReceiptFilesAsync(finalFiles, from, profileId).catch(err => {
           logToFile(`[error] Background processing failed: ${err.message}`);
         });
 
-      }, 2000); // ⏱️ wait 2 seconds after last image
+      }, 2000); // wait 2 seconds after last upload
 
       receiptTimers.set(from, timer);
 
       return;
 
     } catch (err) {
+
       logToFile(`[error] Receipt handling failed: ${err.message}`);
 
       if (!res.headersSent) {
@@ -190,6 +195,7 @@ app.post('/whatsapp', async (req, res) => {
       }
     }
   }
+
 
 
 
@@ -280,30 +286,58 @@ app.post('/whatsapp', async (req, res) => {
   return sendReply(res, defaultMessage);
 });
 
-async function processReceiptImagesAsync(mediaUrls, phone, profileId) {
+async function processReceiptFilesAsync(files, phone, profileId) {
+
   let receiptId = null;
-  const additionalImageIds = [];
+
   try {
-    logToFile(`[info] Processing ${mediaUrls.length} receipt images for ${phone}`);
-    
-    
+
+    logToFile(`[info] Processing ${files.length} receipt file(s) for ${phone}`);
+
     const imageBuffers = [];
 
-    // 1️⃣ Download images
-    for (const url of mediaUrls) {
-      const buffer = await fetchImageFromTwilio(url);
-      imageBuffers.push(buffer);
+    // 1️⃣ Download and normalize files
+    for (const file of files) {
+
+      const buffer = await fetchImageFromTwilio(file.url);
+
+      if (file.type === "image") {
+
+        imageBuffers.push(buffer);
+
+      } else if (file.type === "pdf") {
+
+        logToFile(`[info] Converting PDF to images for ${phone}`);
+
+        // ⚠️ You must implement this helper
+        const pdfPages = await convertPdfToImages(buffer);
+
+        for (const pageBuffer of pdfPages) {
+          imageBuffers.push(pageBuffer);
+        }
+
+      } else {
+
+        logToFile(`[warn] Unsupported file type during processing: ${file.type}`);
+      }
     }
-    
+
+    if (imageBuffers.length === 0) {
+      throw new Error("No valid receipt images found after processing.");
+    }
+
+    // 2️⃣ Upload + OCR + Fraud pipeline
     const result = await uploadReceiptImages(
       imageBuffers,
       `receipt_${profileId}_${Date.now()}.jpg`,
       profileId
     );
-    
-    logToFile(`[info] Processing complete. Fraud score: ${result.fraud_result.score}, Decision: ${result.fraud_result.decision}`);
-    
-    
+
+    logToFile(
+      `[info] Processing complete. Fraud score: ${result.fraud_result.score}, Decision: ${result.fraud_result.decision}`
+    );
+
+    // 3️⃣ Send menu after slight delay
     setTimeout(async () => {
       try {
         await client.messages.create({
@@ -311,26 +345,54 @@ async function processReceiptImagesAsync(mediaUrls, phone, profileId) {
           to: `whatsapp:${phone}`,
           body: defaultMessage
         });
+
         logToFile(`[info] Menu sent to ${phone}`);
+
       } catch (menuErr) {
         logToFile(`[error] Menu send failed: ${menuErr.message}`);
       }
     }, 2000);
-    
+
   } catch (error) {
-    console.log(error)
+
     logToFile(`[error] Receipt processing failed: ${error.message}`);
     logToFile(`[error] Stack: ${error.stack}`);
-    
+
     try {
       await client.messages.create({
         from: 'whatsapp:+15557969091',
         to: `whatsapp:${phone}`,
         body: '❌ There was an error processing your receipt. Please try uploading again or contact support.'
       });
+
     } catch (sendErr) {
       logToFile(`[error] Failed to send error message: ${sendErr.message}`);
     }
+  }
+}
+
+async function convertPdfToImages(pdfBuffer) {
+  try {
+    const converter = fromBuffer(pdfBuffer, {
+      density: 150,
+      format: "jpeg",
+      width: 1200,
+      height: 1600,
+      quality: 100
+    });
+
+    const result = await converter.bulk(-1); // -1 = convert ALL pages
+
+    // result = array of objects with base64
+    const imageBuffers = result.map(page =>
+      Buffer.from(page.base64, "base64")
+    );
+
+    return imageBuffers;
+
+  } catch (err) {
+    console.error("PDF conversion failed:", err.message);
+    throw err;
   }
 }
 
