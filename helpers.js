@@ -592,6 +592,8 @@ function isWithinLastTwoWeeks(dateStr) {
   const now = new Date();
   const diffDays = (now - receiptDate) / (1000 * 60 * 60 * 24);
 
+  console.log(receiptDate, now, diffDays, diffDays >= 0 && diffDays <= 14)
+
   return diffDays >= 0 && diffDays <= 14;
 }
 
