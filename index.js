@@ -136,17 +136,17 @@ app.post('/whatsapp', async (req, res) => {
         }
 
         // ✅ Allow PDF
-        if (mediaType === "application/pdf") {
-          files.push({
-            url: mediaUrl,
-            type: "pdf"
-          });
-          continue;
-        }
+        // if (mediaType === "application/pdf") {
+        //   files.push({
+        //     url: mediaUrl,
+        //     type: "pdf"
+        //   });
+        //   continue;
+        // }
 
         // ❌ Reject unsupported types
         logToFile(`[warn] Unsupported media type from ${from}: ${mediaType}`);
-        sendReply(res, "❌ Unsupported file type. Please send a receipt image or PDF only.");
+        sendReply(res, "❌ Unsupported file type. Please send a receipt image only.");
         return;
       }
 
