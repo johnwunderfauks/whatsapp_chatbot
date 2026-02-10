@@ -116,6 +116,146 @@ const merchantTemplates = [
       /\b(receipt|invoice|order)\s*(no\.?|#)?\s*[:\-]?\s*[A-Z0-9]{5,}\b/i
     ],
     taxRate: 0.09 // Singapore GST (current)
+  },
+
+  // =========================
+  // Shopee Singapore
+  // =========================
+  {
+    id: "shopee_sg",
+    displayName: "Shopee (Singapore)",
+    keywords: ["shopee", "sea ltd"],
+    country: "SG",
+    currency: "SGD",
+    requiredPatterns: [
+      /total/i,
+      /\$|\bsgd\b/i,
+      /order\s*id|receipt/i
+    ],
+    receiptIdPatterns: [
+      /\b(order|invoice)\s*(id|no\.?|#)?\s*[:\-]?\s*[A-Z0-9\-]{6,}\b/i
+    ],
+    taxRate: 0.09
+  },
+
+  // =========================
+  // RedMart Singapore
+  // =========================
+  {
+    id: "redmart_sg",
+    displayName: "RedMart (Singapore)",
+    keywords: ["redmart"],
+    country: "SG",
+    currency: "SGD",
+    requiredPatterns: [
+      /total/i,
+      /\$|\bsgd\b/i,
+      /order|receipt/i
+    ],
+    receiptIdPatterns: [
+      /\b(order|invoice)\s*(no\.?|#)?\s*[:\-]?\s*[A-Z0-9\-]{6,}\b/i
+    ],
+    taxRate: 0.09
+  },
+
+  // =========================
+  // NTUC FairPrice
+  // =========================
+  {
+    id: "ntuc_fairprice_sg",
+    displayName: "NTUC FairPrice",
+    keywords: ["fairprice", "ntuc"],
+    country: "SG",
+    currency: "SGD",
+    requiredPatterns: [
+      /total/i,
+      /\$|\bsgd\b/i,
+      /gst/i
+    ],
+    receiptIdPatterns: [
+      /\b(receipt|txn|transaction)\s*(no\.?|#)?\s*[:\-]?\s*\d{5,}\b/i
+    ],
+    taxRate: 0.09
+  },
+
+  // =========================
+  // Sheng Siong
+  // =========================
+  {
+    id: "sheng_siong_sg",
+    displayName: "Sheng Siong",
+    keywords: ["sheng siong"],
+    country: "SG",
+    currency: "SGD",
+    requiredPatterns: [
+      /total/i,
+      /\$|\bsgd\b/i,
+      /gst/i
+    ],
+    receiptIdPatterns: [
+      /\b(receipt|txn)\s*(no\.?|#)?\s*[:\-]?\s*\d{5,}\b/i
+    ],
+    taxRate: 0.09
+  },
+
+  // =========================
+  // Cold Storage Singapore
+  // =========================
+  {
+    id: "cold_storage_sg",
+    displayName: "Cold Storage",
+    keywords: ["cold storage"],
+    country: "SG",
+    currency: "SGD",
+    requiredPatterns: [
+      /total/i,
+      /\$|\bsgd\b/i,
+      /gst/i
+    ],
+    receiptIdPatterns: [
+      /\b(receipt|txn)\s*(no\.?|#)?\s*[:\-]?\s*\d{5,}\b/i
+    ],
+    taxRate: 0.09
+  },
+
+  // =========================
+  // Grab Singapore
+  // =========================
+  {
+    id: "grab_sg",
+    displayName: "Grab (Singapore)",
+    keywords: ["grab", "grabfood", "grabmart"],
+    country: "SG",
+    currency: "SGD",
+    requiredPatterns: [
+      /total/i,
+      /\$|\bsgd\b/i,
+      /booking|receipt|invoice/i
+    ],
+    receiptIdPatterns: [
+      /\b(booking|order|receipt)\s*(id|no\.?|#)?\s*[:\-]?\s*[A-Z0-9\-]{6,}\b/i
+    ],
+    taxRate: 0.09
+  },
+
+  // =========================
+  // McDonald's Singapore
+  // =========================
+  {
+    id: "mcdonalds_sg",
+    displayName: "McDonald's (Singapore)",
+    keywords: ["mcdonald", "mcdonald's"],
+    country: "SG",
+    currency: "SGD",
+    requiredPatterns: [
+      /total/i,
+      /\$|\bsgd\b/i,
+      /gst/i
+    ],
+    receiptIdPatterns: [
+      /\b(order|receipt)\s*(no\.?|#)?\s*[:\-]?\s*\d{4,}\b/i
+    ],
+    taxRate: 0.09
   }
 ];
 
