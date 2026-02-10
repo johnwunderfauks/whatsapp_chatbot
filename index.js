@@ -29,9 +29,8 @@ const client = twilio(
 const defaultMessage = `Here are your options:
 
 1️⃣ Upload a receipt (📸 Image files only – JPG, JPEG, PNG)
-2️⃣ View purchase history
-3️⃣ Check loyalty points & rewards
-4️⃣ Contact/Support Instructions
+2️⃣ Check loyalty points & rewards
+3️⃣ Contact/Support Instructions
 
 ⚠️ Please upload clear images of your receipt.
 PDF files are not supported.
@@ -225,35 +224,35 @@ app.post('/whatsapp', async (req, res) => {
     return sendReply(res, 'Please upload your receipt image now 📸');
   }
 
+  // if (isMatch(text, [
+  //   /^2$/,
+  //   /history/,
+  //   /orders?/,
+  //   /purchases?/,
+  //   /my receipts/,
+  //   /past receipts/
+  //   ])) {
+  //   try {
+  //     const receipts = await getPurchaseHistory(profileId);
+
+  //     if (!receipts?.length) {
+  //       return sendReply(res, 'No purchase history found yet.');
+  //     }
+
+  //     const list = receipts
+  //       .map(r => `🛒 ${new Date(r.date_uploaded).toLocaleDateString()} — ${r.receipt_image}`)
+  //       .join('\n');
+
+  //     return sendReply(res, `Here is your purchase history:\n\n${list}`);
+
+  //   } catch (err) {
+  //     logToFile(`[error] Fetch receipts failed: ${err.message}`);
+  //     return sendReply(res, 'There was an error fetching your purchase history.');
+  //   }
+  // }
+
   if (isMatch(text, [
-    /^2$/,
-    /history/,
-    /orders?/,
-    /purchases?/,
-    /my receipts/,
-    /past receipts/
-    ])) {
-    try {
-      const receipts = await getPurchaseHistory(profileId);
-
-      if (!receipts?.length) {
-        return sendReply(res, 'No purchase history found yet.');
-      }
-
-      const list = receipts
-        .map(r => `🛒 ${new Date(r.date_uploaded).toLocaleDateString()} — ${r.receipt_image}`)
-        .join('\n');
-
-      return sendReply(res, `Here is your purchase history:\n\n${list}`);
-
-    } catch (err) {
-      logToFile(`[error] Fetch receipts failed: ${err.message}`);
-      return sendReply(res, 'There was an error fetching your purchase history.');
-    }
-  }
-
-  if (isMatch(text, [
-  /^3$/,
+  /^2$/,
   /points?/,
   /loyalty/,
   /rewards?/,
@@ -295,7 +294,7 @@ app.post('/whatsapp', async (req, res) => {
 }
 
   if (isMatch(text, [
-    /^4$/,
+    /^3$/,
     /agent/,
     /support/,
     /help me/,
