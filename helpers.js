@@ -260,7 +260,7 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
 
   if (!isMostlyEnglish(combinedOCR)) {
     receiptFraudSignals.nonEnglish = true;
-    receiptFraudSignals.redFlags.push('Receipt language is not English');
+    // receiptFraudSignals.redFlags.push('Receipt language is not English');
   }
 
   // =============================
@@ -280,12 +280,12 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
     !looksLikeSingapore(combinedOCR)
   ) {
     receiptFraudSignals.nonSingapore = true;
-    receiptFraudSignals.redFlags.push('Receipt does not appear to be from Singapore');
+    // receiptFraudSignals.redFlags.push('Receipt does not appear to be from Singapore');
   }
 
   if (!isWithinLastTwoWeeks(parsed.purchase_date)) {
     receiptFraudSignals.dateOutOfRange = true;
-    receiptFraudSignals.redFlags.push('Receipt date is older than 14 days');
+    // receiptFraudSignals.redFlags.push('Receipt date is older than 14 days');
   }
 
   // =============================
@@ -566,8 +566,17 @@ function getImageHash(imageBuffer) {
 
 // basic level validators
 function isMostlyEnglish(text) {
-  const nonLatin = text.match(/[\u0E00-\u0E7F\u4E00-\u9FFF]/g); // Thai + CJK
-  return !nonLatin || nonLatin.length < text.length * 0.05;
+  if (!text) return false;
+
+  // Remove numbers & punctuation first
+  const lettersOnly = text.replace(/[^a-zA-Z\u0E00-\u0E7F\u4E00-\u9FFF]/g, '');
+
+  if (!lettersOnly.length) return false;
+
+  const englishLetters = lettersOnly.match(/[a-zA-Z]/g) || [];
+  const englishRatio = englishLetters.length / lettersOnly.length;
+
+  return englishRatio >= 0.7; // 70% English threshold
 }
 
 function looksLikeSingapore(text) {
