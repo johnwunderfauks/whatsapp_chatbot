@@ -28,10 +28,13 @@ const client = twilio(
 
 const defaultMessage = `Here's what you can do:
 
-1️⃣ Upload a receipt
+1️⃣ Upload a receipt (📸 Image files only – JPG, JPEG, PNG)
 2️⃣ View purchase history
 3️⃣ Check loyalty points & rewards
 4️⃣ Contact support agent
+
+⚠️ Please upload clear images of your receipt.
+PDF files are not supported.
 
 Type *help* to see this again.`;
 
