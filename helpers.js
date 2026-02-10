@@ -483,14 +483,7 @@ async function summarizeImageFraudSignals(
 
 async function getPurchaseHistory(profileId) {
   const token = getJwtToken();
-  
-  console.log('========================================');
-  console.log('📋 GET PURCHASE HISTORY DEBUG');
-  console.log('========================================');
-  console.log('Profile ID:', profileId);
-  console.log('WP_URL:', WP_URL);
-  console.log('Token:', token ? `${token.substring(0, 20)}...` : 'NULL');
-  console.log('Full URL:', `${WP_URL}/wp-json/custom/v1/receipts?profile_id=${profileId}`);
+
   
   try {
     const { data } = await axios.get(
@@ -505,10 +498,6 @@ async function getPurchaseHistory(profileId) {
       }
     );
     
-    console.log('✅ Request successful');
-    console.log('Response data:', JSON.stringify(data, null, 2));
-    console.log('Number of receipts:', data?.length || 0);
-    console.log('========================================\n');
     
     return data;
     
@@ -541,13 +530,6 @@ async function getPurchaseHistory(profileId) {
 async function getLoyaltyPoints(profileId) {
   const token = getJwtToken();
   
-  console.log('========================================');
-  console.log('💎 GET LOYALTY POINTS DEBUG');
-  console.log('========================================');
-  console.log('Profile ID:', profileId);
-  console.log('WP_URL:', WP_URL);
-  console.log('Token:', token ? `${token.substring(0, 20)}...` : 'NULL');
-  console.log('Full URL:', `${WP_URL}/wp-json/custom/v1/user-profile?profile_id=${profileId}`);
   
   try {
     const { data } = await axios.get(
@@ -562,11 +544,6 @@ async function getLoyaltyPoints(profileId) {
       }
     );
     
-    console.log('✅ Request successful');
-    console.log('Response data:', JSON.stringify(data, null, 2));
-    console.log('Loyalty points:', data?.loyalty_points || 0);
-    console.log('User name:', data?.name || 'N/A');
-    console.log('========================================\n');
     
     return data;
     
