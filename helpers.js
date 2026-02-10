@@ -507,7 +507,7 @@ async function getPurchaseHistory(profileId) {
     
     console.log('✅ Request successful');
     console.log('Response data:', JSON.stringify(data, null, 2));
-    console.log('Number of receipts:', data?.receipts?.length || 0);
+    console.log('Number of receipts:', data?.length || 0);
     console.log('========================================\n');
     
     return data;

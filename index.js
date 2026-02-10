@@ -253,26 +253,46 @@ app.post('/whatsapp', async (req, res) => {
   }
 
   if (isMatch(text, [
-    /^3$/,
-    /points?/,
-    /loyalty/,
-    /rewards?/,
-    /balance/,
-    /my points/
-    ])) {
-    try {
-      const profile = await getLoyaltyPoints(profileId);
+  /^3$/,
+  /points?/,
+  /loyalty/,
+  /rewards?/,
+  /balance/,
+  /my points/
+])) {
+  try {
+    const profile = await getLoyaltyPoints(profileId);
 
-      return sendReply(
-        res,
-        `⭐ Loyalty Points: ${profile.loyalty_points}\n🎁 Rewards: ${profile.rewards || 'None yet'}`
-      );
+    const points = profile.loyalty_points || 0;
+    const rewards = Array.isArray(profile.rewards) ? profile.rewards : [];
 
-    } catch (err) {
-      logToFile(`[error] Loyalty lookup failed: ${err.message}`);
-      return sendReply(res, 'There was an error retrieving your loyalty information.');
+    let rewardMessage = 'None available at the moment.';
+
+    if (rewards.length > 0) {
+      rewardMessage = rewards
+        .map(r => {
+          const canRedeem = points >= r.points_cost && r.current_quantity > 0;
+          const status = r.current_quantity <= 0
+            ? '❌ Out of stock'
+            : canRedeem
+              ? '✅ Redeemable'
+              : `Need ${r.points_cost - points} more pts`;
+
+          return `• ${r.name}\n   Cost: ${r.points_cost} pts\n   Stock: ${r.current_quantity}\n   ${status}`;
+        })
+        .join('\n\n');
     }
+
+    return sendReply(
+      res,
+      `⭐ *Your Loyalty Points:* ${points}\n\n🎁 *Available Rewards:*\n${rewardMessage}`
+    );
+
+  } catch (err) {
+    logToFile(`[error] Loyalty lookup failed: ${err.message}`);
+    return sendReply(res, 'There was an error retrieving your loyalty information.');
   }
+}
 
   if (isMatch(text, [
     /^4$/,
