@@ -347,8 +347,8 @@ app.post('/whatsapp', async (req, res) => {
         const msg = twiml.message(message);
 
         // If media exists → attach it
-        if (promo.media_url) {
-          msg.media(promo.media_url);
+       if (promo.media && promo.media.url) {
+          msg.media(promo.media.url);
         }
       });
 
