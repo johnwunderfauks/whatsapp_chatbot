@@ -48,6 +48,7 @@ const {
   getLoyaltyPoints,
   fetchImageFromTwilio,
   getAvailableRewards, 
+  getPromotions
 } = require('./helpers');
 
 async function sendReply(res, message) {

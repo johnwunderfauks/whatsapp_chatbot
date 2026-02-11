@@ -739,5 +739,6 @@ module.exports = {
   getPurchaseHistory,
   getLoyaltyPoints,
   getAvailableRewards,
-  fetchImageFromTwilio
+  fetchImageFromTwilio,
+  getPromotions
 };
