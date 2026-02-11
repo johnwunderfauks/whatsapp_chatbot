@@ -333,7 +333,10 @@ app.post('/whatsapp', async (req, res) => {
         let message = `🎉 *${promo.title}*\n\n`;
 
         if (promo.content) {
-          const cleanContent = stripHtml(promo.content);
+          const cleanContent = htmlToText(promo.content, {
+            wordwrap: false
+          });
+
           message += `${cleanContent}\n\n`;
         }
 
@@ -348,7 +351,7 @@ app.post('/whatsapp', async (req, res) => {
         const msg = twiml.message(message);
 
         // If media exists → attach it
-       if (promo.media && promo.media.url) {
+        if (promo.media && promo.media.url) {
           msg.media(promo.media.url);
         }
       });
