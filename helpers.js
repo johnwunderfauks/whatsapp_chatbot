@@ -82,8 +82,23 @@ Return JSON with:
 - store_name (string)
 - purchase_date (string, format: YYYY-MM-DD if possible)
 - total_amount (string, number only)
-- items (array of strings, item names with prices if visible)
 - currency (string, e.g. "USD", "THB")
+- items (array of objects with structure:)
+
+items: [
+  {
+    "name": string,
+    "price": number,
+    "quantity": number
+  }
+]
+
+Rules:
+- price must be a number
+- quantity must be a number (default 1 if not shown)
+- Do NOT return strings inside items
+- Do NOT wrap in markdown
+- Return ONLY valid JSON
 
 Example: {"receipt_id": "12345","store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"150.50","items":["Water 15.00","Sandwich 35.50"],"currency":"THB"}`
         }],
