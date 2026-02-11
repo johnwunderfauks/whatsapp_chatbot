@@ -31,6 +31,7 @@ const defaultMessage = `Here are your options:
 1️⃣ Upload a receipt (📸 Image files only – JPG, JPEG, PNG)
 2️⃣ Check loyalty points & rewards
 3️⃣ Contact/Support Instructions
+4️⃣ View current promotions 🎉
 
 ⚠️ Please upload clear images of your receipt.
 PDF files are not supported.
@@ -252,46 +253,46 @@ app.post('/whatsapp', async (req, res) => {
   // }
 
   if (isMatch(text, [
-  /^2$/,
-  /points?/,
-  /loyalty/,
-  /rewards?/,
-  /balance/,
-  /my points/
-])) {
-  try {
-    const profile = await getLoyaltyPoints(profileId);
+    /^2$/,
+    /points?/,
+    /loyalty/,
+    /rewards?/,
+    /balance/,
+    /my points/
+  ])) {
+    try {
+      const profile = await getLoyaltyPoints(profileId);
 
-    const points = profile.loyalty_points || 0;
-    const rewards = Array.isArray(profile.rewards) ? profile.rewards : [];
+      const points = profile.loyalty_points || 0;
+      const rewards = Array.isArray(profile.rewards) ? profile.rewards : [];
 
-    let rewardMessage = 'None available at the moment.';
+      let rewardMessage = 'None available at the moment.';
 
-    if (rewards.length > 0) {
-      rewardMessage = rewards
-        .map(r => {
-          const canRedeem = points >= r.points_cost && r.current_quantity > 0;
-          const status = r.current_quantity <= 0
-            ? '❌ Out of stock'
-            : canRedeem
-              ? '✅ Redeemable'
-              : `Need ${r.points_cost - points} more pts`;
+      if (rewards.length > 0) {
+        rewardMessage = rewards
+          .map(r => {
+            const canRedeem = points >= r.points_cost && r.current_quantity > 0;
+            const status = r.current_quantity <= 0
+              ? '❌ Out of stock'
+              : canRedeem
+                ? '✅ Redeemable'
+                : `Need ${r.points_cost - points} more pts`;
 
-          return `• ${r.name}\n   Cost: ${r.points_cost} pts\n   Stock: ${r.current_quantity}\n   ${status}`;
-        })
-        .join('\n\n');
+            return `• ${r.name}\n   Cost: ${r.points_cost} pts\n   Stock: ${r.current_quantity}\n   ${status}`;
+          })
+          .join('\n\n');
+      }
+
+      return sendReply(
+        res,
+        `⭐ *Your Loyalty Points:* ${points}\n\n🎁 *Available Rewards:*\n${rewardMessage}`
+      );
+
+    } catch (err) {
+      logToFile(`[error] Loyalty lookup failed: ${err.message}`);
+      return sendReply(res, 'There was an error retrieving your loyalty information.');
     }
-
-    return sendReply(
-      res,
-      `⭐ *Your Loyalty Points:* ${points}\n\n🎁 *Available Rewards:*\n${rewardMessage}`
-    );
-
-  } catch (err) {
-    logToFile(`[error] Loyalty lookup failed: ${err.message}`);
-    return sendReply(res, 'There was an error retrieving your loyalty information.');
   }
-}
 
   if (isMatch(text, [
     /^3$/,
@@ -303,6 +304,74 @@ app.post('/whatsapp', async (req, res) => {
     ])) {
     return sendReply(res, '💬 Please send your issue to support@naturellving.com');
   }
+
+  if (isMatch(text, [
+  /^4$/,
+  /promo/,
+  /promotion/,
+  /promotions/,
+  /offer/,
+  /offers/,
+  /discount/,
+  /deals?/
+])) {
+
+  try {
+
+    const data = await getPromotions();
+    const promotions = data.promotions || [];
+
+    if (!promotions.length) {
+      return sendReply(res, "🎉 There are no active promotions at the moment.");
+    }
+
+    // Send first reply immediately (text summary)
+    const summaryText = promotions
+      .map((p, index) => 
+        `${index + 1}. ${p.title}${p.expiry_date ? `\n   Valid until: ${p.expiry_date}` : ''}`
+      )
+      .join('\n\n');
+
+
+    // Send detailed promotions with media
+    for (const promo of promotions) {
+
+      let message = `🎉 *${promo.title}*\n\n`;
+
+      if (promo.content) {
+        message += `${promo.content}\n\n`;
+      }
+
+      if (promo.expiry_date) {
+        message += `⏳ Valid until: ${promo.expiry_date}\n\n`;
+      }
+
+      if (promo.promo_link) {
+        message += `🔗 ${promo.promo_link}\n\n`;
+      }
+
+      // If media exists
+      if (promo.media_url) {
+
+        await sendMediaMessage(
+          promo.media_url,
+          message,
+          promo.mime_type // image/gif/video
+        );
+
+      } else {
+        await sendTextMessage(message);
+      }
+    }
+
+    return;
+
+  } catch (err) {
+    logToFile(`[error] Promotion lookup failed: ${err.message}`);
+    return sendReply(res, 'There was an error retrieving promotions.');
+  }
+}
+
 
     //   fallback
   return sendReply(res, defaultMessage);
@@ -360,20 +429,20 @@ async function processReceiptFilesAsync(files, phone, profileId) {
     );
 
     // 3️⃣ Send menu after slight delay
-    setTimeout(async () => {
-      try {
-        await client.messages.create({
-          from: 'whatsapp:+15557969091',
-          to: `whatsapp:${phone}`,
-          body: defaultMessage
-        });
+    // setTimeout(async () => {
+    //   try {
+    //     await client.messages.create({
+    //       from: 'whatsapp:+15557969091',
+    //       to: `whatsapp:${phone}`,
+    //       body: defaultMessage
+    //     });
 
-        logToFile(`[info] Menu sent to ${phone}`);
+    //     logToFile(`[info] Menu sent to ${phone}`);
 
-      } catch (menuErr) {
-        logToFile(`[error] Menu send failed: ${menuErr.message}`);
-      }
-    }, 2000);
+    //   } catch (menuErr) {
+    //     logToFile(`[error] Menu send failed: ${menuErr.message}`);
+    //   }
+    // }, 2000);
 
   } catch (error) {
 
@@ -593,19 +662,19 @@ app.post('/whatsapp/notify-user', async (req, res) => {
 
 
     // Wait a moment before sending the menu (so messages arrive in order)
-    setTimeout(async () => {
-      try {
-        await client.messages.create({
-          from: 'whatsapp:+15557969091',
-          to: `whatsapp:${phone}`,
-          body: defaultMessage // Send as regular message, not using sendReply
-        });
+    // setTimeout(async () => {
+    //   try {
+    //     await client.messages.create({
+    //       from: 'whatsapp:+15557969091',
+    //       to: `whatsapp:${phone}`,
+    //       body: defaultMessage // Send as regular message, not using sendReply
+    //     });
         
-        logToFile(`[info] Default menu sent to ${phone}`);
-      } catch (menuError) {
-        logToFile(`[error] Failed to send default menu to ${phone}: ${menuError.message}`);
-      }
-    }, 1500); // 1.5 second delay
+    //     logToFile(`[info] Default menu sent to ${phone}`);
+    //   } catch (menuError) {
+    //     logToFile(`[error] Failed to send default menu to ${phone}: ${menuError.message}`);
+    //   }
+    // }, 1500); // 1.5 second delay
 
     
     return;

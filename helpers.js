@@ -588,6 +588,53 @@ async function getLoyaltyPoints(profileId) {
   }
 }
 
+async function getPromotions() {
+  const token = getJwtToken();
+
+  try {
+    const { data } = await axios.get(
+      `${WP_URL}/wp-json/custom/v1/promotions`,
+      {
+        headers: { 
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        }
+      }
+    );
+
+    console.log('✅ PROMOTIONS FETCH SUCCESS');
+    console.log('Promotion count:', data.count);
+    console.log('Full promotion data:\n', JSON.stringify(data, null, 2));
+    console.log('========================================\n');
+
+    return data;
+
+  } catch (error) {
+
+    console.error('❌ GET PROMOTIONS ERROR');
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('Response headers:', error.response.headers);
+    } else if (error.request) {
+      console.error('No response received');
+      console.error('Request details:', error.request);
+    } else {
+      console.error('Request setup error:', error.message);
+    }
+
+    console.error('Full error object:', error);
+    console.log('========================================\n');
+
+    throw error;
+  }
+}
+
+
 
 async function getAvailableRewards(profileId) {
   const token = getJwtToken();
