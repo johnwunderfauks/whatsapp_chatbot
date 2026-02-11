@@ -8,6 +8,7 @@ require('dotenv').config();
 const { job } = require('./keepAlive');
 const receiptTimers = new Map();
 const { fromBuffer } = require("pdf2pic");
+const { htmlToText } = require("html-to-text");
 
 const options = {
   density: 100,
