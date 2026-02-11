@@ -333,7 +333,8 @@ app.post('/whatsapp', async (req, res) => {
         let message = `🎉 *${promo.title}*\n\n`;
 
         if (promo.content) {
-          message += `${promo.content}\n\n`;
+          const cleanContent = stripHtml(promo.content);
+          message += `${cleanContent}\n\n`;
         }
 
         if (promo.expiry_date) {
@@ -476,7 +477,14 @@ async function convertPdfToImages(pdfBuffer) {
   }
 }
 
-
+function stripHtml(html) {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")     // convert <br> to newline
+    .replace(/<\/p>/gi, "\n\n")        // paragraph spacing
+    .replace(/<[^>]*>?/gm, "")         // remove remaining tags
+    .replace(/&amp;/g, "&")            // decode common entities
+    .trim();
+}
 
 // app.post('/whatsapp/notify-user', async (req, res) => {
 //   try {
