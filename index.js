@@ -307,71 +307,59 @@ app.post('/whatsapp', async (req, res) => {
   }
 
   if (isMatch(text, [
-  /^4$/,
-  /promo/,
-  /promotion/,
-  /promotions/,
-  /offer/,
-  /offers/,
-  /discount/,
-  /deals?/
-])) {
+    /^4$/,
+    /promo/,
+    /promotion/,
+    /promotions/,
+    /offer/,
+    /offers/,
+    /discount/,
+    /deals?/
+  ])) {
 
-  try {
+    try {
 
-    const data = await getPromotions();
-    const promotions = data.promotions || [];
+      const data = await getPromotions();
+      const promotions = data.promotions || [];
 
-    if (!promotions.length) {
-      return sendReply(res, "🎉 There are no active promotions at the moment.");
+      if (!promotions.length) {
+        return sendReply(res, "🎉 There are no active promotions at the moment.");
+      }
+
+      const twiml = new MessagingResponse();
+
+      promotions.forEach(promo => {
+
+        let message = `🎉 *${promo.title}*\n\n`;
+
+        if (promo.content) {
+          message += `${promo.content}\n\n`;
+        }
+
+        if (promo.expiry_date) {
+          message += `⏳ Valid until: ${promo.expiry_date}\n\n`;
+        }
+
+        if (promo.promo_link) {
+          message += `🔗 ${promo.promo_link}`;
+        }
+
+        const msg = twiml.message(message);
+
+        // If media exists → attach it
+        if (promo.media_url) {
+          msg.media(promo.media_url);
+        }
+      });
+
+      return res.type('text/xml').send(twiml.toString());
+
+    } catch (err) {
+      logToFile(`[error] Promotion lookup failed: ${err.message}`);
+      return sendReply(res, 'There was an error retrieving promotions.');
     }
-
-    // Send first reply immediately (text summary)
-    const summaryText = promotions
-      .map((p, index) => 
-        `${index + 1}. ${p.title}${p.expiry_date ? `\n   Valid until: ${p.expiry_date}` : ''}`
-      )
-      .join('\n\n');
-
-
-    // Send detailed promotions with media
-    for (const promo of promotions) {
-
-      let message = `🎉 *${promo.title}*\n\n`;
-
-      if (promo.content) {
-        message += `${promo.content}\n\n`;
-      }
-
-      if (promo.expiry_date) {
-        message += `⏳ Valid until: ${promo.expiry_date}\n\n`;
-      }
-
-      if (promo.promo_link) {
-        message += `🔗 ${promo.promo_link}\n\n`;
-      }
-
-      // If media exists
-      if (promo.media_url) {
-
-        await sendMediaMessage(
-          promo.media_url,
-          message,
-          promo.mime_type // image/gif/video
-        );
-
-      } else {
-        await sendTextMessage(message);
-      }
-    }
-
-    return;
-
-  } catch (err) {
-    logToFile(`[error] Promotion lookup failed: ${err.message}`);
-    return sendReply(res, 'There was an error retrieving promotions.');
   }
-}
+
 
 
     //   fallback
