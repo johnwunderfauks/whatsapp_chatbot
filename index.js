@@ -570,6 +570,12 @@ const TEMPLATE_MAP = {
   },
   how_to_use_service: {
     contentSid: 'HXd87581d945c882e6dfd46a1b4094f789'
+  },
+  receipt_approved: {
+    contentSid: 'HXbb179f1c52819107db1a3842d4ca5644'
+  },
+  receipt_rejected: {
+    contentSid: 'HX2b114f7707799cab556ca644409063fa'
   }
 };
 
