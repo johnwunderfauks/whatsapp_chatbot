@@ -576,7 +576,13 @@ const TEMPLATE_MAP = {
   },
   receipt_rejected: {
     contentSid: 'HX2b114f7707799cab556ca644409063fa'
-  }
+  },
+  points_adjusted_increase: {
+    contentSid: 'HX2e231767a1f855df0631910b865b5798'
+  },
+  points_adjusted_decrease: {
+    contentSid: 'HX1959b66f13dd91f13290d09d88bd27bc'
+  },
 };
 
 app.post('/whatsapp/notify-user', async (req, res) => {
