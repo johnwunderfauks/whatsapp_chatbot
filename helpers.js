@@ -13,6 +13,7 @@ const { analyzeImageMetadata, checkImageQuality } = require('./fraud-detection/m
 const { matchMerchantTemplate } = require('./fraud-detection/merchant-templates');
 const { validateReceiptWithOpenAI } = require('./fraud-detection/openai-validator');
 const { calculateFraudScore } = require('./fraud-detection/scoring');
+const { runCampaignEngine } = require('./campaign-engine/campaign-engine');
 
 const {
   WP_USER,
@@ -317,6 +318,8 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
 
   logToFile(`[fraud] DECISION=${fraudResult.decision}, score=${fraudResult.score}`);
 
+  
+
   // =============================
   //  UPLOAD PRIMARY IMAGE
   // =============================
@@ -400,12 +403,30 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
     }
   );
 
+  // =============================
+  //  CAMPAIGN ENGINE  
+  // =============================
+  let campaignResult = null;
+  try {
+    campaignResult = await runCampaignEngine({
+      profileId,
+      receiptId,                    
+      fraudDecision: fraudResult.decision,
+      parsedReceipt: parsed,
+    });
+
+    logToFile(`[campaign] Points awarded: ${campaignResult.totalPointsAwarded}, new balance: ${campaignResult.newBalance}`);
+  } catch (campaignErr) {
+    logToFile(`[campaign] Engine error (non-fatal): ${campaignErr.message}`);
+  }
+
   return {
     receipt_id: receiptId,
     parsed_data: parsed,
     fraud_result: fraudResult,
     openai_assessment: openAiAssessment,
-    total_images: imageBuffers.length
+    total_images: imageBuffers.length,
+    campaign_result:   campaignResult,
   };
 }
 
