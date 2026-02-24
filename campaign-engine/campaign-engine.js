@@ -19,6 +19,9 @@
 
 const axios = require('axios');
 require('dotenv').config();
+const {
+  getJwtToken
+} = require('../helpers');
 
 const WP_URL          = process.env.WP_URL || 'https://wunderfauksw18.sg-host.com/';
 const WP_USER         = process.env.WP_USER;
@@ -360,9 +363,14 @@ function applyRound(value, method) {
 
 async function getRedemptionSlotInfo(campaignPostId, profileId, rule) {
   try {
+    const token = getJwtToken();
     const { data } = await axios.get(
       `${WP_URL}/wp-json/custom/v1/campaign/redemption-count`,
-      { params: { campaign_post_id: campaignPostId }, headers: wpHeaders() }
+      { params: { campaign_post_id: campaignPostId }, headers: {
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        } }
     );
 
     const limit     = data.redemption_limit || rule.limit?.max || 0;
@@ -391,9 +399,14 @@ async function getRedemptionSlotInfo(campaignPostId, profileId, rule) {
 
 async function getUserRedemptionCount(campaignPostId, profileId) {
   try {
+    const token = getJwtToken();
     const { data } = await axios.get(
       `${WP_URL}/wp-json/custom/v1/campaign/ledger`,
-      { params: { profile_id: profileId }, headers: wpHeaders() }
+      { params: { profile_id: profileId }, headers: {
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        } }
     );
     return (data.entries || []).filter(e => String(e.campaign_id) === String(campaignPostId)).length;
   } catch {
@@ -408,9 +421,14 @@ async function getUserRedemptionCount(campaignPostId, profileId) {
 
 async function fetchActiveCampaigns() {
   try {
+    const token = getJwtToken();
     const { data } = await axios.get(
       `${WP_URL}/wp-json/custom/v1/campaign/list`,
-      { headers: wpHeaders() }
+      { headers: {
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        } }
     );
     return data.campaigns || [];
   } catch (err) {
@@ -426,13 +444,18 @@ async function fetchActiveCampaigns() {
  */
 async function saveSuggestion(receiptId, suggestionPayload) {
   try {
+    const token = getJwtToken();
     await axios.post(
       `${WP_URL}/wp-json/custom/v1/campaign/save-suggestion`,
       {
         receipt_id:  receiptId,
         suggestion:  suggestionPayload,
       },
-      { headers: wpHeaders() }
+      { headers: {
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        } }
     );
   } catch (err) {
     console.error(`[campaign] Failed to save suggestion: ${err.message}`);
