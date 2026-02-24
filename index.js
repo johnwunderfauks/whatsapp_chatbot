@@ -90,6 +90,7 @@ app.post('/whatsapp', async (req, res) => {
   try {
     userProfile = await checkOrCreateUserProfile({ phone: from, name });
   } catch (err) {
+    console.log(err)
     logToFile(`[error] WP profile sync failed: ${err.message}`);
     return sendReply(res, 'There was an error processing your profile. Please try again later.');
   }
