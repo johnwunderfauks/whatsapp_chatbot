@@ -97,6 +97,7 @@ app.post('/whatsapp', async (req, res) => {
 
   const profileId = userProfile.profileId;
   if (!profileId) {
+    console.log(userProfile)
     logToFile(`[error] Missing profileId for ${from}`);
     return sendReply(res, 'There was an error processing your profile. Please try again later.');
   }
