@@ -14,6 +14,7 @@ const { matchMerchantTemplate } = require('./fraud-detection/merchant-templates'
 const { validateReceiptWithOpenAI } = require('./fraud-detection/openai-validator');
 const { calculateFraudScore } = require('./fraud-detection/scoring');
 const { runCampaignEngine } = require('./campaign-engine/campaign-engine');
+const { parseAndValidateReceipt } = require('./fraud-detection/parseAndValidateReceipt');
 
 const {
   WP_USER,
@@ -59,75 +60,75 @@ async function extractReceiptText(imageBuffer) {
   return text;
 }
 
-async function parseReceipt(rawText) {
-  try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{
-          role: "system",
-          content: "You are a receipt parser. Extract structured data and return ONLY valid JSON, no markdown, no explanations."
-        }, {
-          role: "user",
-          content: `Parse this receipt text:
+// async function parseReceipt(rawText) {
+//   try {
+//     const response = await fetch("https://api.openai.com/v1/chat/completions", {
+//       method: "POST",
+//       headers: {
+//         "Content-Type": "application/json",
+//         "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+//       },
+//       body: JSON.stringify({
+//         model: "gpt-4o-mini",
+//         messages: [{
+//           role: "system",
+//           content: "You are a receipt parser. Extract structured data and return ONLY valid JSON, no markdown, no explanations."
+//         }, {
+//           role: "user",
+//           content: `Parse this receipt text:
 
-${rawText}
+// ${rawText}
 
-Return JSON with:
-- receipt_id (string)
-- store_name (string)
-- purchase_date (string, format: YYYY-MM-DD if possible)
-- total_amount (string, number only)
-- currency (string, e.g. "USD", "THB")
-- items (array of objects with structure:)
+// Return JSON with:
+// - receipt_id (string)
+// - store_name (string)
+// - purchase_date (string, format: YYYY-MM-DD if possible)
+// - total_amount (string, number only)
+// - currency (string, e.g. "USD", "THB")
+// - items (array of objects with structure:)
 
-items: [
-  {
-    "name": string,
-    "price": number,
-    "quantity": number
-  }
-]
+// items: [
+//   {
+//     "name": string,
+//     "price": number,
+//     "quantity": number
+//   }
+// ]
 
-Rules:
-- price must be a number
-- quantity must be a number (default 1 if not shown)
-- Do NOT return strings inside items
-- Do NOT wrap in markdown
-- Return ONLY valid JSON
+// Rules:
+// - price must be a number
+// - quantity must be a number (default 1 if not shown)
+// - Do NOT return strings inside items
+// - Do NOT wrap in markdown
+// - Return ONLY valid JSON
 
-Example: {"receipt_id": "12345","store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"150.50","items":["Water 15.00","Sandwich 35.50"],"currency":"THB"}`
-        }],
-        temperature: 0,
-        max_tokens: 500
-      })
-    });
+// Example: {"receipt_id": "12345","store_name":"7-Eleven","purchase_date":"2024-01-15","total_amount":"150.50","items":["Water 15.00","Sandwich 35.50"],"currency":"THB"}`
+//         }],
+//         temperature: 0,
+//         max_tokens: 500
+//       })
+//     });
 
 
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
-    }
+//     if (!response.ok) {
+//       throw new Error(`OpenAI API error: ${response.status}`);
+//     }
 
-    const data = await response.json();
-    const text = data.choices[0].message.content.trim();
+//     const data = await response.json();
+//     const text = data.choices[0].message.content.trim();
     
-    // Remove markdown code blocks if present
-    const cleanText = text.replace(/```json\n?|```\n?/g, '');
+//     // Remove markdown code blocks if present
+//     const cleanText = text.replace(/```json\n?|```\n?/g, '');
 
-    console.log(cleanText)
+//     console.log(cleanText)
     
-    return JSON.parse(cleanText);
+//     return JSON.parse(cleanText);
     
-  } catch (err) {
-    logToFile(`[error] OpenAI parsing failed: ${err.message}`);
-    throw err;
-  }
-}
+//   } catch (err) {
+//     logToFile(`[error] OpenAI parsing failed: ${err.message}`);
+//     throw err;
+//   }
+// }
 
 function logToFile(message) {
   const logPath = path.resolve(__dirname, 'chatbot_logs.txt');
@@ -265,11 +266,15 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
     ? [templateCheck.template.displayName]
     : [];
 
-  const openAiAssessment = await validateReceiptWithOpenAI(
-    combinedOCR,
-    'SG',
-    merchantCandidates
-  );
+  
+
+  const { parsed, openAiAssessment } = await parseAndValidateReceipt(combinedOCR, 'SG', merchantCandidates);
+
+  // const openAiAssessment = await validateReceiptWithOpenAI(
+  //   combinedOCR,
+  //   'SG',
+  //   merchantCandidates
+  // );
 
   logToFile(`[fraud] OpenAI likelihood=${openAiAssessment.fraud_likelihood}`);
 
@@ -279,10 +284,7 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
     // receiptFraudSignals.redFlags.push('Receipt language is not English');
   }
 
-  // =============================
-  //  PARSE + STORE RECEIPT
-  // =============================
-  const parsed = await parseReceipt(combinedOCR);
+  
 
   // =============================
   //  AGGREGATE IMAGE FRAUD
@@ -411,7 +413,6 @@ async function uploadReceiptImages(imageBuffers, filenames, profileId) {
     campaignResult = await runCampaignEngine({
       profileId,
       receiptId,                    
-      fraudDecision: fraudResult.decision,
       parsedReceipt: parsed,
     });
 

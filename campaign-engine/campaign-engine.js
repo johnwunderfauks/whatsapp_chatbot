@@ -20,7 +20,6 @@
 const axios = require('axios');
 require('dotenv').config();
 
-
 const WP_URL          = process.env.WP_URL || 'https://wunderfauksw18.sg-host.com/';
 const WP_USER         = process.env.WP_USER;
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD;
@@ -53,6 +52,10 @@ function wpHeaders() {
  *
  * NOTE: No points are awarded here. The return value is for logging only.
  *       The suggestion is persisted on the WP receipt post for admin review.
+ *
+ * All active campaigns are included in the suggestion payload:
+ *   - matched: true  → auto-selected in admin UI, points pre-filled
+ *   - matched: false → shown but unchecked, points empty (admin can manually fill)
  */
 async function runCampaignEngine({ profileId, receiptId, parsedReceipt }) {
 
@@ -76,6 +79,9 @@ async function runCampaignEngine({ profileId, receiptId, parsedReceipt }) {
 
   // -------------------------------------------------------
   // 3. Evaluate each campaign's rules
+  //    ALL campaigns are included in output.
+  //    matched=true  → auto-selected, points pre-filled
+  //    matched=false → shown unchecked, points=0 for admin to fill manually
   // -------------------------------------------------------
   const suggestions = [];
 
@@ -84,52 +90,18 @@ async function runCampaignEngine({ profileId, receiptId, parsedReceipt }) {
     const rules = campaign.rules?.rules;
 
     if (!Array.isArray(rules) || !rules.length) {
-      console.log(`[campaign] "${campaign.title}" has no rules — skipping`);
-      continue;
-    }
-
-    // Higher priority number = evaluated first
-    const sortedRules = [...rules].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
-
-    for (const rule of sortedRules) {
-
-      // ---- Evaluate when conditions ----
-      const conditionsMet = evaluateWhen(rule.when, ctx);
-      if (!conditionsMet) continue;
-
-      // ---- Check limited redemption slots (suggestion-time preview) ----
-      // We check slots here so admin knows if the slot is still available
-      // at the time of submission. Slots are NOT consumed until admin approves.
-      let slotAvailable = true;
-      let slotsRemaining = null;
-
-      if (rule.limit) {
-        const slotInfo = await getRedemptionSlotInfo(campaign.campaign_post_id, profileId, rule);
-        slotAvailable  = slotInfo.available;
-        slotsRemaining = slotInfo.remaining;
-
-        if (!slotAvailable) {
-          console.log(`[campaign] Rule "${rule.id}" — limit reached at suggestion time, noting in suggestion`);
-        }
-      }
-
-      // ---- Calculate suggested points ----
-      const suggestedPoints = calculatePoints(rule.then, ctx);
-
-      if (suggestedPoints <= 0 && slotAvailable) continue;
-
-      console.log(`[campaign] Rule "${rule.id}" matched — suggesting ${suggestedPoints} pts`);
-
+      // No rules defined — include as unmatched so admin is aware it exists
       suggestions.push({
-        campaign_post_id:  campaign.campaign_post_id,
-        campaign_title:    campaign.title,
-        brand_id:          campaign.brand_id,
-        rule_id:           rule.id,
-        rule_label:        rule.label || rule.id,
-        suggested_points:  suggestedPoints,
-        slot_available:    slotAvailable,
-        slots_remaining:   slotsRemaining,
-        note:              rule.then?.[0]?.label || rule.label || rule.id,
+        campaign_post_id: campaign.campaign_post_id,
+        campaign_title:   campaign.title,
+        brand_id:         campaign.brand_id,
+        rule_id:          null,
+        rule_label:       'No rules defined',
+        suggested_points: 0,
+        matched:          false,
+        slot_available:   true,
+        slots_remaining:  null,
+        note:             '',
         receipt_snapshot: {
           store_name:    ctx.receipt.store_name,
           total:         ctx.receipt.total,
@@ -137,6 +109,58 @@ async function runCampaignEngine({ profileId, receiptId, parsedReceipt }) {
           purchase_date: ctx.receipt.purchase_date,
         },
       });
+      continue;
+    }
+
+    // Higher priority number = evaluated first
+    const sortedRules = [...rules].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
+    let campaignMatched = false;
+
+    for (const rule of sortedRules) {
+
+      // ---- Evaluate when conditions ----
+      const conditionsMet = evaluateWhen(rule.when, ctx);
+
+      // ---- Check limited redemption slots ----
+      let slotAvailable  = true;
+      let slotsRemaining = null;
+
+      if (rule.limit) {
+        const slotInfo = await getRedemptionSlotInfo(campaign.campaign_post_id, profileId, rule);
+        slotAvailable  = slotInfo.available;
+        slotsRemaining = slotInfo.remaining;
+      }
+
+      // ---- Calculate suggested points (0 if not matched) ----
+      const suggestedPoints = conditionsMet ? calculatePoints(rule.then, ctx) : 0;
+
+      suggestions.push({
+        campaign_post_id: campaign.campaign_post_id,
+        campaign_title:   campaign.title,
+        brand_id:         campaign.brand_id,
+        rule_id:          rule.id,
+        rule_label:       rule.label || rule.id,
+        suggested_points: suggestedPoints,
+        matched:          conditionsMet,          
+        slot_available:   slotAvailable,
+        slots_remaining:  slotsRemaining,
+        note:             rule.then?.[0]?.label || rule.label || rule.id,
+        receipt_snapshot: {
+          store_name:    ctx.receipt.store_name,
+          total:         ctx.receipt.total,
+          currency:      ctx.receipt.currency,
+          purchase_date: ctx.receipt.purchase_date,
+        },
+      });
+
+      if (conditionsMet) campaignMatched = true;
+    }
+
+    if (campaignMatched) {
+      console.log(`[campaign] "${campaign.title}" matched`);
+    } else {
+      console.log(`[campaign] "${campaign.title}" did not match — included as unmatched`);
     }
   }
 
@@ -144,7 +168,7 @@ async function runCampaignEngine({ profileId, receiptId, parsedReceipt }) {
   // 4. Save suggestion to WP receipt post
   // -------------------------------------------------------
   const totalSuggestedPoints = suggestions
-    .filter(s => s.slot_available)
+    .filter(s => s.matched && s.slot_available)
     .reduce((sum, s) => sum + s.suggested_points, 0);
 
   const suggestionPayload = {
@@ -306,10 +330,7 @@ function calculatePoints(actions, ctx) {
         break;
 
       case 'flat_per_match': {
-        // Read match_keywords directly from the then action definition.
-        // This lets the campaign JSON declare exactly which keywords to count,
-        // independent of the when conditions.
-        // e.g. { "mode": "flat_per_match", "bonus": 20, "match_keywords": ["H/F", "HF "] }
+        
         const matchKeywords = Array.isArray(action.match_keywords) && action.match_keywords.length
           ? action.match_keywords
           : (ctx._matchedSkuKeywords || []);
@@ -355,9 +376,7 @@ function applyRound(value, method) {
 }
 
 
-// ============================================================
-// LIMITED CAMPAIGN — SLOT INFO (read-only, no consumption)
-// ============================================================
+
 
 async function getRedemptionSlotInfo(campaignPostId, profileId, rule) {
   try {
@@ -370,7 +389,7 @@ async function getRedemptionSlotInfo(campaignPostId, profileId, rule) {
     const count     = data.redemption_count || 0;
     const remaining = limit > 0 ? Math.max(0, limit - count) : null;
 
-    // Global limit check
+   
     if (limit > 0 && count >= limit) {
       return { available: false, remaining: 0 };
     }
@@ -420,11 +439,6 @@ async function fetchActiveCampaigns() {
   }
 }
 
-/**
- * saveSuggestion
- * Saves the campaign suggestion payload onto the WP receipt post.
- * Admin sees this during manual review.
- */
 async function saveSuggestion(receiptId, suggestionPayload) {
   try {
     await axios.post(
@@ -437,7 +451,7 @@ async function saveSuggestion(receiptId, suggestionPayload) {
     );
   } catch (err) {
     console.error(`[campaign] Failed to save suggestion: ${err.message}`);
-    // Non-fatal — suggestion save failure should not crash receipt processing
+    
   }
 }
 

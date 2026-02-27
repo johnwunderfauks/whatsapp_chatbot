@@ -71,7 +71,7 @@ app.get('/', (req, res) => {
   });
 });
 
-job.start();
+// job.start();
 console.log('🔄 Keep-alive job started (pings every 14 minutes)');
 
 app.post('/whatsapp', async (req, res) => {
