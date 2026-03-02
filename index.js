@@ -9,6 +9,7 @@ const { job } = require('./keepAlive');
 const receiptTimers = new Map();
 const { fromBuffer } = require("pdf2pic");
 const { htmlToText } = require("html-to-text");
+const { checkRateLimit, recordMessageSent } = require('./fraud-detection/message-rate-limiter');
 
 const options = {
   density: 100,
@@ -102,6 +103,19 @@ app.post('/whatsapp', async (req, res) => {
     return sendReply(res, 'There was an error processing your profile. Please try again later.');
   }
 
+  // ── Rate limit check ───────────────────────────────────────
+  const { allowed, warning } = await checkRateLimit(profileId);
+
+  if (!allowed) {
+    if (warning) {
+      logToFile(`[rate-limit] Sending daily limit warning to ${from}`);
+      return sendReply(res, warning);
+    }
+    logToFile(`[rate-limit] Silently dropping message from ${from} (limit reached)`);
+    return res.send('<Response></Response>'); // empty TwiML — no reply
+  }
+  // ──────────────────────────────────────────────────────────
+
 
   const state = await getChatState(from);
 
@@ -116,6 +130,7 @@ app.post('/whatsapp', async (req, res) => {
 
       // 1️⃣ Acknowledge ONLY on first media
       if (!state.receiptFiles || state.receiptFiles.length === 0) {
+        await recordMessageSent(profileId);
         sendReply(res, '📸 Receipt received. Processing now...');
       }
 
@@ -207,10 +222,12 @@ app.post('/whatsapp', async (req, res) => {
 
 
   if (/help/i.test(body)) {
+    await recordMessageSent(profileId);
     return sendReply(res, defaultMessage);
   }
 
   if (/stop/i.test(body)) {
+    await recordMessageSent(profileId);
     return sendReply(res, 'You have exited the chatbot. Type *help* to return anytime.');
   }
 
@@ -226,6 +243,7 @@ app.post('/whatsapp', async (req, res) => {
     ])) {
       console.log("upload receipt")
     await updateChatState(from, { expectingImage: true });
+    await recordMessageSent(profileId);
     return sendReply(res, 'Please upload your receipt image now 📸');
   }
 
@@ -287,6 +305,7 @@ app.post('/whatsapp', async (req, res) => {
           .join('\n\n');
       }
 
+      await recordMessageSent(profileId);
       return sendReply(
         res,
         `⭐ *Your Loyalty Points:* ${points}\n\n🎁 *Available Rewards:*\n${rewardMessage}`
@@ -306,6 +325,7 @@ app.post('/whatsapp', async (req, res) => {
     /talk to/,
     /contact/
     ])) {
+    await recordMessageSent(profileId);
     return sendReply(res, '💬 Please send your issue to support@naturellving.com');
   }
 
@@ -326,6 +346,7 @@ app.post('/whatsapp', async (req, res) => {
       const promotions = data.promotions || [];
 
       if (!promotions.length) {
+        await recordMessageSent(profileId);
         return sendReply(res, "🎉 There are no active promotions at the moment.");
       }
 
@@ -358,7 +379,7 @@ app.post('/whatsapp', async (req, res) => {
           msg.media(promo.media.url);
         }
       });
-
+      await recordMessageSent(profileId);
       return res.type('text/xml').send(twiml.toString());
 
     } catch (err) {
@@ -370,6 +391,7 @@ app.post('/whatsapp', async (req, res) => {
 
 
     //   fallback
+  await recordMessageSent(profileId);
   return sendReply(res, defaultMessage);
 });
 
@@ -491,61 +513,6 @@ function stripHtml(html) {
     .replace(/&amp;/g, "&")            // decode common entities
     .trim();
 }
-
-// app.post('/whatsapp/notify-user', async (req, res) => {
-//   try {
-//     const { phone, message, receipt_id, use_template, template_name, template_params } = req.body;
-//     console.log(use_template, template_name, template_params, use_template && template_name)
-    
-//     if (!phone) {
-//       return res.status(400).json({ success: false, message: 'Missing phone' });
-//     }
-
-//     if (!use_template && !message) {
-//       return res.status(400).json({ success: false, message: 'Missing message' });
-//     }
-
-//     if (use_template && template_name) {
-//       // Using Twilio Content API with approved template
-//       console.log("otp content template")
-//       const twilioMessage = await client.messages.create({
-//         from: 'whatsapp:+15557969091',
-//         to: `whatsapp:${phone}`,
-//         contentSid: 'HXdcdd359845fc13bcb68c13031cdfb9b1', 
-//         contentVariables: JSON.stringify({
-//           '1': template_params[0] // OTP code
-//         })
-//       });
-      
-//       logToFile(`[info] Template OTP sent to ${phone}. SID: ${twilioMessage.sid}`);
-//     } else {
-      
-//       // Send WhatsApp message
-//       await client.messages.create({
-//         from: 'whatsapp:+15557969091', 
-//         to: `whatsapp:${phone}`,
-//         body: message
-//      });
-
-//      res.json({ 
-//       success: true, 
-//       message: 'Notification is being sent...'
-//     });
-    
-//     logToFile(`[info] Notification sent to ${phone} for receipt ${receipt_id}`);
-//   }
-    
-//     // res.json({ success: true, message: 'Notification sent' });
-//   } catch (error) {
-//     logToFile(`[error] Notification failed: ${error.message}`);
-//     if (!res.headersSent) {
-//       return res.status(500).json({
-//         success: false,
-//         message: error.message
-//       });
-//     }
-//   }
-// });
 
 
 const TEMPLATE_MAP = {
