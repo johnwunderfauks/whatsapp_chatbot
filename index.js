@@ -28,17 +28,7 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-const defaultMessage = `Here are your options:
 
-1️⃣ Upload a receipt (📸 Image files only – JPG, JPEG, PNG)
-2️⃣ Check loyalty points & rewards
-3️⃣ Contact/Support Instructions
-4️⃣ View current promotions 🎉
-
-⚠️ Please upload clear images of your receipt.
-PDF files are not supported.
-
-Type *help* to view the menu again.`;
 
 const {
   logToFile,
@@ -50,7 +40,8 @@ const {
   getLoyaltyPoints,
   fetchImageFromTwilio,
   getAvailableRewards, 
-  getPromotions
+  getPromotions,
+  getDefaultMessage
 } = require('./helpers');
 
 async function sendReply(res, message) {
@@ -223,7 +214,8 @@ app.post('/whatsapp', async (req, res) => {
 
   if (/help/i.test(body)) {
     await recordMessageSent(profileId);
-    return sendReply(res, defaultMessage);
+    const msg = await getDefaultMessage();
+    return sendReply(res, msg);
   }
 
   if (/stop/i.test(body)) {
@@ -392,7 +384,8 @@ app.post('/whatsapp', async (req, res) => {
 
     //   fallback
   await recordMessageSent(profileId);
-  return sendReply(res, defaultMessage);
+  const msg = await getDefaultMessage();
+  return sendReply(res, msg);
 });
 
 async function processReceiptFilesAsync(files, phone, profileId) {

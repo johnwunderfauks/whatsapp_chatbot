@@ -146,6 +146,51 @@ async function updateChatState(chatId, update) {
   chatStateStore.set(chatId, { ...currentState, ...update });
 }
 
+async function getDefaultMessage() {
+
+  let campaignLine = '';
+
+  try {
+    const token = getJwtToken();
+    const res = await axios.get(
+      `${WP_URL}/wp-json/custom/v1/campaign/list`,
+      {
+        headers: {
+          Authorization: `Basic ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'WhatsApp-Bot/1.0'
+        }
+      }
+    );
+
+    const campaigns = res.data?.campaigns || res.data || [];
+    const active    = campaigns.filter(c => c.status === 'active' || c.campaign_status === 'active');
+
+    if (active.length > 0) {
+      const names = active.map(c => `• ${c.title || c.name}`).join('\n');
+      campaignLine = `\n\n🎯 *Active Campaigns:*\n${names}`;
+    } else {
+      campaignLine = '\n\n📭 No campaigns are running at the moment.';
+    }
+
+  } catch (err) {
+    logToFile(`[warn] Could not fetch campaigns for default message: ${err.message}`);
+    // Fail silently — just omit the campaign line
+  }
+
+  return `Here are your options:
+
+1️⃣ Upload a receipt (📸 Image files only – JPG, JPEG, PNG)
+2️⃣ Check loyalty points & rewards
+3️⃣ Contact/Support Instructions
+4️⃣ View current promotions 🎉${campaignLine}
+
+⚠️ Please upload clear images of your receipt.
+PDF files are not supported.
+
+Type *help* to view the menu again.`;
+}
+
 async function checkOrCreateUserProfile({ phone, name }) {
   try {
     const token = getJwtToken();
@@ -762,5 +807,6 @@ module.exports = {
   getLoyaltyPoints,
   getAvailableRewards,
   fetchImageFromTwilio,
-  getPromotions
+  getPromotions,
+  getDefaultMessage
 };
