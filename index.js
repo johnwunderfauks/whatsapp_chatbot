@@ -5,9 +5,9 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const twilio = require("twilio");
 
-const { job } = require("../../keepAlive");
-const helpers = require("../../helpers");
-const rateLimiter = require("../../fraud-detection/message-rate-limiter");
+const { job } = require("./keepAlive");
+const helpers = require("./helpers");
+const rateLimiter = require("./fraud-detection/message-rate-limiter");
 
 const { createBotService } = require("./src/services/botService"); // adjust path if needed
 
