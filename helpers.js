@@ -20,7 +20,7 @@ const {
   WP_USER,
   WP_PASS,
   WP_APP_PASSWORD,
-  WP_URL = 'https://wunderfauksw18.sg-host.com/'
+  WP_URL = 'https://wunderfauks-showcase.com/'
 } = process.env;
 
 const receiptFraudSignals = {
