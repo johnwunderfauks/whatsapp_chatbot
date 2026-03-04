@@ -6,8 +6,8 @@
     "node": ">=14"
   },
   "scripts": {
-    "start": "node index.js",
-    "dev": "DEV=true npm run start"
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
   },
   "dependencies": {
     "@google-cloud/vision": "^5.3.4",
@@ -15,7 +15,7 @@
     "axios": "^1.3.6",
     "canvas": "^3.2.1",
     "cron": "^4.4.0",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.3.1",
     "exif-reader": "^2.0.3",
     "express": "^4.22.1",
     "form-data": "^4.0.5",
