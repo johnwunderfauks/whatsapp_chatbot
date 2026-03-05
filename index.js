@@ -30,7 +30,12 @@ const botService = createBotService({
 app.get("/", botService.health);
 botService.startKeepAlive();
 
-app.post("/whatsapp", botService.handleWhatsappWebhook);
+app.post("/whatsapp", (req, res, next) => {
+  console.log("📩 TWILIO WEBHOOK HIT");
+  console.log("HEADERS:", req.headers);
+  console.log("BODY:", req.body);
+  next();
+}, botService.handleWhatsappWebhook);
 app.post("/whatsapp/notify-user", botService.handleNotifyUser);
 
 const PORT = Number(process.env.PORT || 3000);
