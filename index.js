@@ -35,3 +35,8 @@ app.post("/whatsapp/notify-user", botService.handleNotifyUser);
 
 const PORT = Number(process.env.PORT || 3000);
 app.listen(PORT, () => console.log(`Express server listening on port ${PORT}`));
+
+console.log("ENV CHECK:", {
+  WP_USER: process.env.WP_USER,
+  WP_URL: process.env.WP_URL,
+});

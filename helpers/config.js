@@ -1,7 +1,10 @@
 // helpers/config.js
 function required(name) {
   const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
+  if (!v) {
+    console.error("Missing ENV:", name);
+    process.exit(1);
+  }
   return v;
 }
 
