@@ -12,7 +12,7 @@ function createConfig() {
   return {
     httpTimeoutMs: Number(process.env.HTTP_TIMEOUT_MS || 20000),
     wp: {
-      url: (process.env.WP_URL || "https://wunderfauksw18.sg-host.com/").replace(/\/$/, ""),
+      url: (process.env.WP_URL),
       user: required("WP_USER"),
       appPassword: required("WP_APP_PASSWORD"),
       userAgent: process.env.BOT_USER_AGENT || "WhatsApp-Bot/1.0",
