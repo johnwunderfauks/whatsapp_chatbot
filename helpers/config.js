@@ -19,7 +19,7 @@ function createConfig() {
       duplicateCheckTimeoutMs: Number(process.env.DUPLICATE_CHECK_TIMEOUT_MS || 5000),
     },
     log: {
-      file: process.env.BOT_LOG_FILE || "./chatbot_logs.txt",
+      file: process.env.BOT_LOG_FILE,
     },
     state: {
       ttlMs: Number(process.env.STATE_TTL_MS || 24 * 60 * 60 * 1000),
