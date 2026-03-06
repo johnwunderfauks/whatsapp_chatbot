@@ -1,6 +1,16 @@
 // index.js
 require("dotenv").config();
 
+const fs = require("fs");
+const path = require("path");
+
+// Railway-friendly Google Vision bootstrap
+if (process.env.GOOGLE_CREDENTIALS_JSON) {
+  const targetPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || "/tmp/gcp.json";
+  fs.writeFileSync(targetPath, process.env.GOOGLE_CREDENTIALS_JSON, "utf8");
+  console.log(`Google credentials written to ${targetPath}`);
+}
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const twilio = require("twilio");
