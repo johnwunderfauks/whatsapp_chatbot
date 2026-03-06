@@ -30,6 +30,18 @@ const botService = createBotService({
 app.get("/", botService.health);
 botService.startKeepAlive();
 
+app.get("/debug/env-check", (req, res) => {
+  res.json({
+    hasTwilioSid: !!process.env.TWILIO_ACCOUNT_SID,
+    hasTwilioToken: !!process.env.TWILIO_AUTH_TOKEN,
+    hasWpUrl: !!process.env.WP_URL,
+    hasWpUser: !!process.env.WP_USER,
+    hasWpAppPassword: !!process.env.WP_APP_PASSWORD,
+    googleCredPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || null,
+    hasGoogleCredJson: !!process.env.GOOGLE_CREDENTIALS_JSON,
+  });
+});
+
 app.post("/whatsapp", (req, res, next) => {
   console.log("TWILIO WEBHOOK HIT", {
     from: req.body.From,
