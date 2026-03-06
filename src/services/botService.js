@@ -9,12 +9,9 @@ const { htmlToText } = require("html-to-text");
  * BotService encapsulates:
  * - / health endpoint
  * - /whatsapp Twilio inbound webhook
- * - /whatsapp/notify-user internal notify endpoint (template or fallback text)
- * - receipt media debounce + background processing (OCR/fraud via helpers.uploadReceiptImages)
+ * - /whatsapp/notify-user internal notify endpoint
+ * - receipt media debounce + background processing
  * - rate limiting
- *
- * Dependencies are injected (Twilio client, helpers, rate limiter, keepAlive job),
- * so the service is testable and production-friendly.
  */
 
 const TEMPLATE_MAP = {
@@ -34,7 +31,7 @@ const TEMPLATE_MAP = {
 
 function createBotService({
   twilioClient,
-  keepAliveJob, // optional: job from keepAlive
+  keepAliveJob,
   helpers,
   rateLimiter,
   config = {},
@@ -42,6 +39,31 @@ function createBotService({
   if (!helpers) throw new Error("BotService: missing helpers");
   if (!twilioClient) throw new Error("BotService: missing twilioClient");
   if (!rateLimiter) throw new Error("BotService: missing rateLimiter");
+
+  const requiredHelperFns = [
+    "logToFile",
+    "getChatState",
+    "updateChatState",
+    "checkOrCreateUserProfile",
+    "uploadReceiptImages",
+    "getLoyaltyPoints",
+    "fetchImageFromTwilio",
+    "getPromotions",
+    "getDefaultMessage",
+  ];
+
+  for (const fn of requiredHelperFns) {
+    if (typeof helpers[fn] !== "function") {
+      throw new Error(`BotService: helpers.${fn} is missing or not a function`);
+    }
+  }
+
+  if (typeof rateLimiter.checkRateLimit !== "function") {
+    throw new Error("BotService: rateLimiter.checkRateLimit is missing");
+  }
+  if (typeof rateLimiter.recordMessageSent !== "function") {
+    throw new Error("BotService: rateLimiter.recordMessageSent is missing");
+  }
 
   const {
     logToFile,
@@ -58,14 +80,15 @@ function createBotService({
   const { checkRateLimit, recordMessageSent } = rateLimiter;
 
   const TWILIO_WHATSAPP_FROM =
-    process.env.TWILIO_WHATSAPP_FROM || config.twilioWhatsAppFrom || "whatsapp:+15557969091";
+    process.env.TWILIO_WHATSAPP_FROM ||
+    config.twilioWhatsAppFrom ||
+    "whatsapp:+15557969091";
+
+  const RECEIPT_DEBOUNCE_MS = Number(process.env.RECEIPT_DEBOUNCE_MS || 2000);
 
   // Debounce timers per phone
   const receiptTimers = new Map();
 
-  const RECEIPT_DEBOUNCE_MS = Number(process.env.RECEIPT_DEBOUNCE_MS || 2000);
-
-  // --------- helpers ----------
   function normalizeIncomingText(body) {
     return (body || "")
       .trim()
@@ -77,20 +100,27 @@ function createBotService({
     return patterns.some((p) => p.test(text));
   }
 
+  function safeStringify(value) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[unserializable]";
+    }
+  }
+
   function twimlReply(res, message) {
+    if (res.headersSent) return;
     const twiml = new MessagingResponse();
     twiml.message(message);
     return res.type("text/xml").send(twiml.toString());
   }
 
   function emptyTwiML(res) {
-    // silent drop
+    if (res.headersSent) return;
     return res.type("text/xml").send("<Response></Response>");
   }
 
   async function convertPdfToImages(pdfBuffer) {
-    // NOTE: PDF media is currently disabled in your webhook intake.
-    // This function remains production-ready if you re-enable it.
     const converter = fromBuffer(pdfBuffer, {
       density: 150,
       format: "jpeg",
@@ -99,18 +129,29 @@ function createBotService({
       quality: 100,
     });
 
-    const result = await converter.bulk(-1); // convert all pages
+    const result = await converter.bulk(-1);
     return result.map((page) => Buffer.from(page.base64, "base64"));
   }
 
   async function processReceiptFilesAsync({ files, phone, profileId }) {
     try {
-      logToFile(`[info] Processing ${files.length} receipt file(s) for ${phone}`);
+      logToFile(`[debug] Starting processReceiptFilesAsync for ${phone}`);
+      logToFile(`[debug] files=${safeStringify(files)}`);
+
+      if (!Array.isArray(files) || files.length === 0) {
+        throw new Error("No receipt files were collected for processing.");
+      }
 
       const imageBuffers = [];
 
-      // 1) Download and normalize files to images
       for (const file of files) {
+        if (!file?.url || !file?.type) {
+          logToFile(`[warn] Skipping invalid file entry: ${safeStringify(file)}`);
+          continue;
+        }
+
+        logToFile(`[debug] Downloading media from Twilio: ${file.url}`);
+
         const buffer = await fetchImageFromTwilio(file.url);
 
         if (file.type === "image") {
@@ -121,7 +162,9 @@ function createBotService({
         if (file.type === "pdf") {
           logToFile(`[info] Converting PDF to images for ${phone}`);
           const pdfPages = await convertPdfToImages(buffer);
-          for (const pageBuffer of pdfPages) imageBuffers.push(pageBuffer);
+          for (const pageBuffer of pdfPages) {
+            imageBuffers.push(pageBuffer);
+          }
           continue;
         }
 
@@ -132,24 +175,29 @@ function createBotService({
         throw new Error("No valid receipt images found after processing.");
       }
 
-      // 2) Upload + OCR + Fraud pipeline (your helper owns this)
-      const result = await uploadReceiptImages(
-        imageBuffers,
-        `receipt_${profileId}_${Date.now()}.jpg`,
-        profileId
+      const ts = Date.now();
+      const filenames = imageBuffers.map(
+        (_, i) => `receipt_${profileId}_${ts}_${i + 1}.jpg`
       );
+
+      logToFile(
+        `[debug] Uploading ${imageBuffers.length} image(s) to WordPress for profileId=${profileId}`
+      );
+      logToFile(`[debug] filenames=${safeStringify(filenames)}`);
+
+      const result = await uploadReceiptImages(imageBuffers, filenames, profileId);
 
       const score = result?.fraud_result?.score;
       const decision = result?.fraud_result?.decision;
+      const receiptId = result?.receipt_id;
 
       logToFile(
-        `[info] Receipt processing complete for ${phone}. Fraud score: ${score}, Decision: ${decision}`
+        `[info] Receipt processing complete for ${phone}. receipt_id=${receiptId || "n/a"}, fraud_score=${score}, decision=${decision}`
       );
     } catch (error) {
       logToFile(`[error] Receipt processing failed: ${error.message}`);
-      logToFile(`[error] Stack: ${error.stack}`);
+      logToFile(`[error] Stack: ${error.stack || "no stack"}`);
 
-      // Notify user on failure (out-of-band; webhook already acked)
       try {
         await twilioClient.messages.create({
           from: TWILIO_WHATSAPP_FROM,
@@ -157,12 +205,13 @@ function createBotService({
           body: "❌ There was an error processing your receipt. Please try uploading again or contact support.",
         });
       } catch (sendErr) {
-        logToFile(`[error] Failed to send receipt processing error message: ${sendErr.message}`);
+        logToFile(
+          `[error] Failed to send receipt processing error message: ${sendErr.message}`
+        );
       }
     }
   }
 
-  // --------- controllers ----------
   function health(req, res) {
     res.status(200).json({
       status: "alive",
@@ -184,25 +233,42 @@ function createBotService({
     const body = (req.body.Body || "").trim();
     const name = req.body.ProfileName || "Unknown";
     const text = normalizeIncomingText(body);
+    const numMedia = parseInt(req.body.NumMedia || "0", 10);
 
-    logToFile(`[info] Incoming Twilio message from ${name} (${from}) -> ${body}`);
+    logToFile(
+      `[info] Incoming Twilio message from ${name} (${from}) -> ${body || "[media/no text]"}`
+    );
+    logToFile(
+      `[debug] Webhook media summary: numMedia=${numMedia}, mediaType0=${req.body.MediaContentType0 || ""}, mediaUrl0=${req.body.MediaUrl0 || ""}`
+    );
 
-    // 1) WP profile sync
+    if (!from) {
+      logToFile("[warn] Incoming webhook missing From");
+      return emptyTwiML(res);
+    }
+
     let userProfile;
     try {
       userProfile = await checkOrCreateUserProfile({ phone: from, name });
     } catch (err) {
       logToFile(`[error] WP profile sync failed: ${err.message}`);
-      return twimlReply(res, "There was an error processing your profile. Please try again later.");
+      return twimlReply(
+        res,
+        "There was an error processing your profile. Please try again later."
+      );
     }
 
     const profileId = userProfile?.profileId;
     if (!profileId) {
-      logToFile(`[error] Missing profileId for ${from} - userProfile=${JSON.stringify(userProfile)}`);
-      return twimlReply(res, "There was an error processing your profile. Please try again later.");
+      logToFile(
+        `[error] Missing profileId for ${from} - userProfile=${safeStringify(userProfile)}`
+      );
+      return twimlReply(
+        res,
+        "There was an error processing your profile. Please try again later."
+      );
     }
 
-    // 2) Rate limit
     const { allowed, warning } = await checkRateLimit(profileId);
 
     if (!allowed) {
@@ -214,88 +280,113 @@ function createBotService({
       return emptyTwiML(res);
     }
 
-    // 3) Receipt flow (expects image)
     const state = await getChatState(from);
-
-    const numMedia = parseInt(req.body.NumMedia || "0", 10);
+    logToFile(`[debug] Current state for ${from}: ${safeStringify(state)}`);
 
     if (state.expectingImage && numMedia > 0) {
       try {
-        // Acknowledge only on first media in the batch
-        if (!state.receiptFiles || state.receiptFiles.length === 0) {
+        const alreadyCollected = Array.isArray(state.receiptFiles)
+          ? state.receiptFiles.length
+          : 0;
+
+        if (alreadyCollected === 0) {
           await recordMessageSent(profileId);
-          // sendReply but DO NOT await; Twilio expects quick response
           twimlReply(res, "📸 Receipt received. Processing now...");
         }
 
         let files = Array.isArray(state.receiptFiles) ? [...state.receiptFiles] : [];
 
-        // Collect media
         for (let i = 0; i < numMedia; i++) {
           const mediaUrl = req.body[`MediaUrl${i}`];
           const mediaType = req.body[`MediaContentType${i}`];
 
-          if (!mediaUrl || !mediaType) continue;
+          logToFile(
+            `[debug] Inspecting media[${i}] url=${mediaUrl || ""} type=${mediaType || ""}`
+          );
+
+          if (!mediaUrl || !mediaType) {
+            logToFile(`[warn] Missing mediaUrl/mediaType for index ${i}`);
+            continue;
+          }
 
           if (mediaType.startsWith("image/")) {
             files.push({ url: mediaUrl, type: "image" });
             continue;
           }
 
-          // PDF currently disabled in your intake logic; keep ready if you re-enable
+          // Re-enable if you want PDF support
           // if (mediaType === "application/pdf") {
           //   files.push({ url: mediaUrl, type: "pdf" });
           //   continue;
           // }
 
           logToFile(`[warn] Unsupported media type from ${from}: ${mediaType}`);
-          // If headers already sent due to ack, no additional response can be sent safely.
           if (!res.headersSent) {
             return twimlReply(res, "❌ Unsupported file type. Please send a receipt image only.");
           }
           return;
         }
 
-        // Save state
         await updateChatState(from, { receiptFiles: files });
         logToFile(`[info] Collected ${files.length} receipt file(s) from ${from}`);
 
-        // Reset debounce timer
         if (receiptTimers.has(from)) {
           clearTimeout(receiptTimers.get(from));
+          receiptTimers.delete(from);
+          logToFile(`[debug] Cleared existing debounce timer for ${from}`);
         }
 
         const timer = setTimeout(async () => {
-          const finalState = await getChatState(from);
-          const finalFiles = finalState.receiptFiles || [];
+          try {
+            const finalState = await getChatState(from);
+            const finalFiles = Array.isArray(finalState.receiptFiles)
+              ? finalState.receiptFiles
+              : [];
 
-          logToFile(`[info] Debounced processing ${finalFiles.length} receipt file(s) for ${from}`);
+            logToFile(
+              `[info] Debounced processing ${finalFiles.length} receipt file(s) for ${from}`
+            );
 
-          // Clear state BEFORE processing
-          await updateChatState(from, { expectingImage: false, receiptFiles: [] });
-          receiptTimers.delete(from);
+            await updateChatState(from, {
+              expectingImage: false,
+              receiptFiles: [],
+            });
 
-          // Background processing
-          processReceiptFilesAsync({ files: finalFiles, phone: from, profileId }).catch((err) => {
+            receiptTimers.delete(from);
+
+            await processReceiptFilesAsync({
+              files: finalFiles,
+              phone: from,
+              profileId,
+            });
+          } catch (err) {
             logToFile(`[error] Background receipt processing failed: ${err.message}`);
-          });
+            logToFile(`[error] Background processing stack: ${err.stack || "no stack"}`);
+          }
         }, RECEIPT_DEBOUNCE_MS);
 
         receiptTimers.set(from, timer);
+        logToFile(
+          `[debug] Set debounce timer (${RECEIPT_DEBOUNCE_MS}ms) for ${from}`
+        );
 
-        // We already responded if it was first media; otherwise we should respond silently
-        if (!res.headersSent) return emptyTwiML(res);
+        if (!res.headersSent) {
+          return emptyTwiML(res);
+        }
         return;
       } catch (err) {
         logToFile(`[error] Receipt handling failed: ${err.message}`);
+        logToFile(`[error] Receipt handling stack: ${err.stack || "no stack"}`);
         if (!res.headersSent) {
-          return twimlReply(res, "There was an error uploading your receipt. Please try again later.");
+          return twimlReply(
+            res,
+            "There was an error uploading your receipt. Please try again later."
+          );
         }
         return;
       }
     }
 
-    // 4) Commands/menu
     if (/help/i.test(body)) {
       await recordMessageSent(profileId);
       const msg = await getDefaultMessage();
@@ -308,16 +399,23 @@ function createBotService({
       return twimlReply(res, "You have exited the chatbot. Type *help* to return anytime.");
     }
 
-    // 1) Upload receipt
     if (
-      isMatch(text, [/^1$/, /upload/, /send.*receipt/, /submit.*receipt/, /receipt/, /photo/, /image/])
+      isMatch(text, [
+        /^1$/,
+        /upload/,
+        /send.*receipt/,
+        /submit.*receipt/,
+        /receipt/,
+        /photo/,
+        /image/,
+      ])
     ) {
       await updateChatState(from, { expectingImage: true, receiptFiles: [] });
       await recordMessageSent(profileId);
+      logToFile(`[info] Receipt upload mode enabled for ${from}`);
       return twimlReply(res, "Please upload your receipt image now 📸");
     }
 
-    // 2) Loyalty points
     if (isMatch(text, [/^2$/, /points?/, /loyalty/, /rewards?/, /balance/, /my points/])) {
       try {
         const profile = await getLoyaltyPoints(profileId);
@@ -353,14 +451,23 @@ function createBotService({
       }
     }
 
-    // 3) Support
     if (isMatch(text, [/^3$/, /agent/, /support/, /help me/, /talk to/, /contact/])) {
       await recordMessageSent(profileId);
       return twimlReply(res, "💬 Please send your issue to support@naturellving.com");
     }
 
-    // 4) Promotions
-    if (isMatch(text, [/^4$/, /promo/, /promotion/, /promotions/, /offer/, /offers/, /discount/, /deals?/])) {
+    if (
+      isMatch(text, [
+        /^4$/,
+        /promo/,
+        /promotion/,
+        /promotions/,
+        /offer/,
+        /offers/,
+        /discount/,
+        /deals?/,
+      ])
+    ) {
       try {
         const data = await getPromotions();
         const promotions = data?.promotions || [];
@@ -380,8 +487,13 @@ function createBotService({
             message += `${cleanContent}\n\n`;
           }
 
-          if (promo.expiry_date) message += `⏳ Valid until: ${promo.expiry_date}\n\n`;
-          if (promo.promo_link) message += `🔗 ${promo.promo_link}`;
+          if (promo.expiry_date) {
+            message += `⏳ Valid until: ${promo.expiry_date}\n\n`;
+          }
+
+          if (promo.promo_link) {
+            message += `🔗 ${promo.promo_link}`;
+          }
 
           const msg = twiml.message(message);
 
@@ -398,7 +510,6 @@ function createBotService({
       }
     }
 
-    // fallback
     await recordMessageSent(profileId);
     const msg = await getDefaultMessage();
     return twimlReply(res, msg);
@@ -422,7 +533,6 @@ function createBotService({
       let twilioResponse;
       let usedFallback = false;
 
-      // Template path
       if (use_template && template_name && TEMPLATE_MAP[template_name]) {
         try {
           const contentVariables = {};
@@ -453,7 +563,6 @@ function createBotService({
         );
       }
 
-      // Fallback text path
       if (!twilioResponse) {
         if (!message) {
           return res.status(400).json({
@@ -468,7 +577,9 @@ function createBotService({
           body: message,
         });
 
-        logToFile(`[info] Text message sent to ${phone} for receipt ${receipt_id || "n/a"}`);
+        logToFile(
+          `[info] Text message sent to ${phone} for receipt ${receipt_id || "n/a"}`
+        );
       }
 
       return res.json({
@@ -477,7 +588,8 @@ function createBotService({
         fallback_used: usedFallback,
       });
     } catch (error) {
-      helpers.logToFile?.(`[error] Notification failed: ${error.message}`);
+      logToFile(`[error] Notification failed: ${error.message}`);
+      logToFile(`[error] Notification stack: ${error.stack || "no stack"}`);
       if (!res.headersSent) {
         return res.status(500).json({ success: false, message: error.message });
       }

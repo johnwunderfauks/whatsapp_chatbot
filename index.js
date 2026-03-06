@@ -31,9 +31,13 @@ app.get("/", botService.health);
 botService.startKeepAlive();
 
 app.post("/whatsapp", (req, res, next) => {
-  console.log("📩 TWILIO WEBHOOK HIT");
-  console.log("HEADERS:", req.headers);
-  console.log("BODY:", req.body);
+  console.log("TWILIO WEBHOOK HIT", {
+    from: req.body.From,
+    body: req.body.Body,
+    numMedia: req.body.NumMedia,
+    mediaUrl0: req.body.MediaUrl0,
+    mediaType0: req.body.MediaContentType0,
+  });
   next();
 }, botService.handleWhatsappWebhook);
 app.post("/whatsapp/notify-user", botService.handleNotifyUser);
