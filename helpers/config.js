@@ -26,7 +26,7 @@ function createConfig() {
     },
     gcp: {
       // GOOGLE_APPLICATION_CREDENTIALS is used by google sdk automatically
-      enabled: Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS),
+      enabled: Boolean(required("GOOGLE_APPLICATION_CREDENTIALS")),
     },
     twilio: {
       accountSid: process.env.TWILIO_ACCOUNT_SID || "",

@@ -1,7 +1,7 @@
 // helpers/services/fraudPipeline.js
 const crypto = require("crypto");
-const vision = require("@google-cloud/vision");
 
+const { extractReceiptText } = require("./visionService");
 const { analyzeImageMetadata, checkImageQuality } = require("../../fraud-detection/metadata-check");
 const { matchMerchantTemplate } = require("../../fraud-detection/merchant-templates");
 const { calculateFraudScore } = require("../../fraud-detection/scoring");
@@ -9,15 +9,13 @@ const { runCampaignEngine } = require("../../campaign-engine/campaign-engine");
 const { parseAndValidateReceipt } = require("../../fraud-detection/parseAndValidateReceipt");
 
 function createFraudPipeline(config, logger, { wpService }) {
-  const visionClient = new vision.ImageAnnotatorClient();
-
   function createReceiptFraudSignals() {
-    return { nonEnglish: false, nonSingapore: false, dateOutOfRange: false, redFlags: [] };
-  }
-
-  async function extractReceiptText(imageBuffer) {
-    const [result] = await visionClient.textDetection(imageBuffer);
-    return result.fullTextAnnotation?.text || "";
+    return {
+      nonEnglish: false,
+      nonSingapore: false,
+      dateOutOfRange: false,
+      redFlags: [],
+    };
   }
 
   function getImageHash(imageBuffer) {
@@ -94,6 +92,12 @@ function createFraudPipeline(config, logger, { wpService }) {
 
   async function uploadReceiptImages(imageBuffers, filenames, profileId) {
     if (!profileId) throw new Error("Profile ID is not defined");
+    if (!Array.isArray(imageBuffers) || imageBuffers.length === 0) {
+      throw new Error("imageBuffers must be a non-empty array");
+    }
+    if (!Array.isArray(filenames) || filenames.length !== imageBuffers.length) {
+      throw new Error("filenames must be an array with one filename per image");
+    }
 
     const receiptFraudSignals = createReceiptFraudSignals();
     logger.logToFile(`[fraud] Starting MULTI-IMAGE fraud detection pipeline...`);
@@ -112,8 +116,18 @@ function createFraudPipeline(config, logger, { wpService }) {
       const imageHash = getImageHash(buffer);
       const rawText = await extractReceiptText(buffer);
 
-      imageAnalyses.push({ index: i, isPrimary, metaSignals, qualityCheck, imageHash });
-      ocrResults.push({ index: i, text: rawText });
+      imageAnalyses.push({
+        index: i,
+        isPrimary,
+        metaSignals,
+        qualityCheck,
+        imageHash,
+      });
+
+      ocrResults.push({
+        index: i,
+        text: rawText,
+      });
 
       logger.logToFile(
         `[fraud] Image ${i + 1}: flags=${metaSignals.redFlags.length}, tooPerfect=${qualityCheck.tooPerfect}`
@@ -124,20 +138,34 @@ function createFraudPipeline(config, logger, { wpService }) {
     logger.logToFile(`[info] Combined OCR length: ${combinedOCR.length}`);
 
     const templateCheck = matchMerchantTemplate(combinedOCR, "SG");
-    logger.logToFile(`[fraud] Template matched=${templateCheck.matched}, score=${templateCheck.score}`);
+    logger.logToFile(
+      `[fraud] Template matched=${templateCheck.matched}, score=${templateCheck.score}`
+    );
 
-    const merchantCandidates = templateCheck.template ? [templateCheck.template.displayName] : [];
+    const merchantCandidates = templateCheck.template
+      ? [templateCheck.template.displayName]
+      : [];
 
-    const { parsed, openAiAssessment } = await parseAndValidateReceipt(combinedOCR, "SG", merchantCandidates);
-    logger.logToFile(`[fraud] OpenAI likelihood=${openAiAssessment.fraud_likelihood}`);
+    const { parsed, openAiAssessment } = await parseAndValidateReceipt(
+      combinedOCR,
+      "SG",
+      merchantCandidates
+    );
 
-    if (!isMostlyEnglish(combinedOCR)) receiptFraudSignals.nonEnglish = true;
+    logger.logToFile(
+      `[fraud] OpenAI likelihood=${openAiAssessment.fraud_likelihood}`
+    );
+
+    if (!isMostlyEnglish(combinedOCR)) {
+      receiptFraudSignals.nonEnglish = true;
+    }
 
     const imageFraudSummary = await summarizeImageFraudSignals(imageAnalyses, parsed);
 
     if (parsed.currency !== "SGD" && !looksLikeSingapore(combinedOCR)) {
       receiptFraudSignals.nonSingapore = true;
     }
+
     if (!isWithinLastTwoWeeks(parsed.purchase_date)) {
       receiptFraudSignals.dateOutOfRange = true;
     }
@@ -151,9 +179,10 @@ function createFraudPipeline(config, logger, { wpService }) {
       wpAuth: wpService.getJwtToken(),
     });
 
-    logger.logToFile(`[fraud] DECISION=${fraudResult.decision}, score=${fraudResult.score}`);
+    logger.logToFile(
+      `[fraud] DECISION=${fraudResult.decision}, score=${fraudResult.score}`
+    );
 
-    // Upload images
     const { receiptId } = await wpService.uploadPrimaryAndExtraImages({
       imageBuffers,
       filenames,
@@ -172,7 +201,6 @@ function createFraudPipeline(config, logger, { wpService }) {
       imageAnalyses,
     });
 
-    // Campaign engine
     let campaignResult = null;
     try {
       campaignResult = await runCampaignEngine({
@@ -185,7 +213,9 @@ function createFraudPipeline(config, logger, { wpService }) {
         `[campaign] Points awarded: ${campaignResult.totalPointsAwarded}, new balance: ${campaignResult.newBalance}`
       );
     } catch (campaignErr) {
-      logger.logToFile(`[campaign] Engine error (non-fatal): ${campaignErr.message}`);
+      logger.logToFile(
+        `[campaign] Engine error (non-fatal): ${campaignErr.message}`
+      );
     }
 
     return {
