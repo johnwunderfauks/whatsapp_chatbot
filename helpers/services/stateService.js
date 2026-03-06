@@ -1,39 +1,51 @@
-// helpers/services/stateService.js
+const { getRedis } = require("./redisClient");
+
 function createStateService(config, logger) {
-  const store = new Map();
+  const redis = getRedis();
+  const ttlSeconds = Math.max(
+    60,
+    Math.floor((config.state?.ttlMs || 86400000) / 1000)
+  );
 
-  function now() {
-    return Date.now();
+  function key(phone) {
+    return `chat_state:${phone}`;
   }
 
-  function getEntry(key) {
-    const existing = store.get(key);
-    if (!existing) {
-      const entry = { data: {}, expiresAt: now() + config.state.ttlMs };
-      store.set(key, entry);
-      return entry;
+  async function getChatState(phone) {
+    const raw = await redis.get(key(phone));
+    if (!raw) return {};
+
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      logger.logToFile(
+        `[warn] Failed to parse chat state for ${phone}: ${err.message}`
+      );
+      return {};
     }
-    if (existing.expiresAt && now() > existing.expiresAt) {
-      const entry = { data: {}, expiresAt: now() + config.state.ttlMs };
-      store.set(key, entry);
-      return entry;
-    }
-    return existing;
   }
 
-  async function getChatState(key) {
-    return getEntry(key).data;
+  async function updateChatState(phone, patch = {}) {
+    const current = await getChatState(phone);
+    const next = {
+      ...(current || {}),
+      ...(patch || {}),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await redis.set(key(phone), JSON.stringify(next), "EX", ttlSeconds);
+    return next;
   }
 
-  async function updateChatState(key, patch = {}) {
-    const entry = getEntry(key);
-    entry.data = { ...(entry.data || {}), ...(patch || {}) };
-    entry.expiresAt = now() + config.state.ttlMs;
-    store.set(key, entry);
-    return entry.data;
+  async function clearChatState(phone) {
+    await redis.del(key(phone));
   }
 
-  return { getChatState, updateChatState, _store: store };
+  return {
+    getChatState,
+    updateChatState,
+    clearChatState,
+  };
 }
 
 module.exports = { createStateService };

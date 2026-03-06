@@ -1,18 +1,8 @@
-// src/services/botService.js
 /* eslint-disable no-console */
 
 const { MessagingResponse } = require("twilio").twiml;
-const { fromBuffer } = require("pdf2pic");
 const { htmlToText } = require("html-to-text");
-
-/**
- * BotService encapsulates:
- * - / health endpoint
- * - /whatsapp Twilio inbound webhook
- * - /whatsapp/notify-user internal notify endpoint
- * - receipt media debounce + background processing
- * - rate limiting
- */
+const { enqueueReceiptJob } = require("./queueService");
 
 const TEMPLATE_MAP = {
   otp_login: { contentSid: "HXa83dae8644668753ede2d6399d240a1a" },
@@ -40,41 +30,16 @@ function createBotService({
   if (!twilioClient) throw new Error("BotService: missing twilioClient");
   if (!rateLimiter) throw new Error("BotService: missing rateLimiter");
 
-  const requiredHelperFns = [
-    "logToFile",
-    "getChatState",
-    "updateChatState",
-    "checkOrCreateUserProfile",
-    "uploadReceiptImages",
-    "getLoyaltyPoints",
-    "fetchImageFromTwilio",
-    "getPromotions",
-    "getDefaultMessage",
-  ];
-
-  for (const fn of requiredHelperFns) {
-    if (typeof helpers[fn] !== "function") {
-      throw new Error(`BotService: helpers.${fn} is missing or not a function`);
-    }
-  }
-
-  if (typeof rateLimiter.checkRateLimit !== "function") {
-    throw new Error("BotService: rateLimiter.checkRateLimit is missing");
-  }
-  if (typeof rateLimiter.recordMessageSent !== "function") {
-    throw new Error("BotService: rateLimiter.recordMessageSent is missing");
-  }
-
   const {
     logToFile,
     getChatState,
     updateChatState,
+    clearChatState,
     checkOrCreateUserProfile,
-    uploadReceiptImages,
     getLoyaltyPoints,
-    fetchImageFromTwilio,
     getPromotions,
     getDefaultMessage,
+    claimWebhookOnce,
   } = helpers;
 
   const { checkRateLimit, recordMessageSent } = rateLimiter;
@@ -85,8 +50,6 @@ function createBotService({
     "whatsapp:+15557969091";
 
   const RECEIPT_DEBOUNCE_MS = Number(process.env.RECEIPT_DEBOUNCE_MS || 2000);
-
-  // Debounce timers per phone
   const receiptTimers = new Map();
 
   function normalizeIncomingText(body) {
@@ -120,98 +83,6 @@ function createBotService({
     return res.type("text/xml").send("<Response></Response>");
   }
 
-  async function convertPdfToImages(pdfBuffer) {
-    const converter = fromBuffer(pdfBuffer, {
-      density: 150,
-      format: "jpeg",
-      width: 1200,
-      height: 1600,
-      quality: 100,
-    });
-
-    const result = await converter.bulk(-1);
-    return result.map((page) => Buffer.from(page.base64, "base64"));
-  }
-
-  async function processReceiptFilesAsync({ files, phone, profileId }) {
-    try {
-      logToFile(`[debug] Starting processReceiptFilesAsync for ${phone}`);
-      logToFile(`[debug] files=${safeStringify(files)}`);
-
-      if (!Array.isArray(files) || files.length === 0) {
-        throw new Error("No receipt files were collected for processing.");
-      }
-
-      const imageBuffers = [];
-
-      for (const file of files) {
-        if (!file?.url || !file?.type) {
-          logToFile(`[warn] Skipping invalid file entry: ${safeStringify(file)}`);
-          continue;
-        }
-
-        logToFile(`[debug] Downloading media from Twilio: ${file.url}`);
-
-        const buffer = await fetchImageFromTwilio(file.url);
-
-        if (file.type === "image") {
-          imageBuffers.push(buffer);
-          continue;
-        }
-
-        if (file.type === "pdf") {
-          logToFile(`[info] Converting PDF to images for ${phone}`);
-          const pdfPages = await convertPdfToImages(buffer);
-          for (const pageBuffer of pdfPages) {
-            imageBuffers.push(pageBuffer);
-          }
-          continue;
-        }
-
-        logToFile(`[warn] Unsupported file type during processing: ${file.type}`);
-      }
-
-      if (imageBuffers.length === 0) {
-        throw new Error("No valid receipt images found after processing.");
-      }
-
-      const ts = Date.now();
-      const filenames = imageBuffers.map(
-        (_, i) => `receipt_${profileId}_${ts}_${i + 1}.jpg`
-      );
-
-      logToFile(
-        `[debug] Uploading ${imageBuffers.length} image(s) to WordPress for profileId=${profileId}`
-      );
-      logToFile(`[debug] filenames=${safeStringify(filenames)}`);
-
-      const result = await uploadReceiptImages(imageBuffers, filenames, profileId);
-
-      const score = result?.fraud_result?.score;
-      const decision = result?.fraud_result?.decision;
-      const receiptId = result?.receipt_id;
-
-      logToFile(
-        `[info] Receipt processing complete for ${phone}. receipt_id=${receiptId || "n/a"}, fraud_score=${score}, decision=${decision}`
-      );
-    } catch (error) {
-      logToFile(`[error] Receipt processing failed: ${error.message}`);
-      logToFile(`[error] Stack: ${error.stack || "no stack"}`);
-
-      try {
-        await twilioClient.messages.create({
-          from: TWILIO_WHATSAPP_FROM,
-          to: `whatsapp:${phone}`,
-          body: "❌ There was an error processing your receipt. Please try uploading again or contact support.",
-        });
-      } catch (sendErr) {
-        logToFile(
-          `[error] Failed to send receipt processing error message: ${sendErr.message}`
-        );
-      }
-    }
-  }
-
   function health(req, res) {
     res.status(200).json({
       status: "alive",
@@ -234,6 +105,14 @@ function createBotService({
     const name = req.body.ProfileName || "Unknown";
     const text = normalizeIncomingText(body);
     const numMedia = parseInt(req.body.NumMedia || "0", 10);
+    const messageSid = req.body.MessageSid || req.body.SmsMessageSid || "";
+
+    const mediaUrls = [];
+    for (let i = 0; i < numMedia; i++) {
+      if (req.body[`MediaUrl${i}`]) {
+        mediaUrls.push(req.body[`MediaUrl${i}`]);
+      }
+    }
 
     logToFile(
       `[info] Incoming Twilio message from ${name} (${from}) -> ${body || "[media/no text]"}`
@@ -245,6 +124,19 @@ function createBotService({
     if (!from) {
       logToFile("[warn] Incoming webhook missing From");
       return emptyTwiML(res);
+    }
+
+    if (typeof claimWebhookOnce === "function") {
+      const idem = await claimWebhookOnce({
+        messageSid,
+        from,
+        body,
+        mediaUrls,
+      });
+
+      if (!idem.claimed) {
+        return emptyTwiML(res);
+      }
     }
 
     let userProfile;
@@ -304,21 +196,12 @@ function createBotService({
             `[debug] Inspecting media[${i}] url=${mediaUrl || ""} type=${mediaType || ""}`
           );
 
-          if (!mediaUrl || !mediaType) {
-            logToFile(`[warn] Missing mediaUrl/mediaType for index ${i}`);
-            continue;
-          }
+          if (!mediaUrl || !mediaType) continue;
 
           if (mediaType.startsWith("image/")) {
             files.push({ url: mediaUrl, type: "image" });
             continue;
           }
-
-          // Re-enable if you want PDF support
-          // if (mediaType === "application/pdf") {
-          //   files.push({ url: mediaUrl, type: "pdf" });
-          //   continue;
-          // }
 
           logToFile(`[warn] Unsupported media type from ${from}: ${mediaType}`);
           if (!res.headersSent) {
@@ -347,28 +230,35 @@ function createBotService({
               `[info] Debounced processing ${finalFiles.length} receipt file(s) for ${from}`
             );
 
-            await updateChatState(from, {
-              expectingImage: false,
-              receiptFiles: [],
-            });
+            if (typeof clearChatState === "function") {
+              await clearChatState(from);
+            } else {
+              await updateChatState(from, {
+                expectingImage: false,
+                receiptFiles: [],
+              });
+            }
 
             receiptTimers.delete(from);
 
-            await processReceiptFilesAsync({
-              files: finalFiles,
+            const enqueued = await enqueueReceiptJob({
               phone: from,
               profileId,
+              files: finalFiles,
+              sourceMessageSid: messageSid,
             });
+
+            logToFile(
+              `[queue] Enqueued receipt job for ${from}. jobId=${enqueued.jobId}, batchHash=${enqueued.batchHash}`
+            );
           } catch (err) {
-            logToFile(`[error] Background receipt processing failed: ${err.message}`);
-            logToFile(`[error] Background processing stack: ${err.stack || "no stack"}`);
+            logToFile(`[error] Failed to enqueue/process receipt batch: ${err.message}`);
+            logToFile(`[error] Enqueue stack: ${err.stack || "no stack"}`);
           }
         }, RECEIPT_DEBOUNCE_MS);
 
         receiptTimers.set(from, timer);
-        logToFile(
-          `[debug] Set debounce timer (${RECEIPT_DEBOUNCE_MS}ms) for ${from}`
-        );
+        logToFile(`[debug] Set debounce timer (${RECEIPT_DEBOUNCE_MS}ms) for ${from}`);
 
         if (!res.headersSent) {
           return emptyTwiML(res);
@@ -394,7 +284,11 @@ function createBotService({
     }
 
     if (/stop/i.test(body)) {
-      await updateChatState(from, { expectingImage: false, receiptFiles: [] });
+      if (typeof clearChatState === "function") {
+        await clearChatState(from);
+      } else {
+        await updateChatState(from, { expectingImage: false, receiptFiles: [] });
+      }
       await recordMessageSent(profileId);
       return twimlReply(res, "You have exited the chatbot. Type *help* to return anytime.");
     }

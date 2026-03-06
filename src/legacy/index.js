@@ -181,10 +181,11 @@ app.post('/whatsapp', async (req, res) => {
         logToFile(`[info] Processing ${finalFiles.length} receipt file(s) for ${from}`);
 
         // ✅ Clear state BEFORE processing
-        await updateChatState(from, {
-          expectingImage: false,
-          receiptFiles: []
-        });
+        if (typeof clearChatState === "function") {
+          await clearChatState(from);
+        } else {
+          await updateChatState(from, { expectingImage: false, receiptFiles: [] });
+        }
 
         receiptTimers.delete(from);
 
