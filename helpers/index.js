@@ -3,9 +3,8 @@ const { createLogger } = require("./logger");
 const { createStateService } = require("./services/stateService");
 const { createMediaService } = require("./services/mediaService");
 const { createWpService } = require("./services/wpService");
-const { createFraudPipeline } = require("./services/fraudPipeLine");
+const { createFraudPipeline } = require("./services/fraudPipeline");
 const { createIdempotencyService } = require("./services/idempotencyService");
-const { createJobQueueService } = require("./services/jobQueueService");
 const { createReceiptJobService } = require("./services/receiptJobService");
 
 const config = createConfig();
@@ -15,7 +14,6 @@ const mediaService = createMediaService(config, logger);
 const wpService = createWpService(config, logger);
 const fraudPipeline = createFraudPipeline(config, logger, { wpService });
 const idempotencyService = createIdempotencyService(config, logger);
-const jobQueueService = createJobQueueService(config, logger, {});
 const receiptJobService = createReceiptJobService(config, logger, { wpService });
 
 module.exports = {
@@ -33,7 +31,6 @@ module.exports = {
   getDefaultMessage: wpService.getDefaultMessage,
   claimWebhookOnce: idempotencyService.claimWebhookOnce,
   claimReceiptBatchOnce: idempotencyService.claimReceiptBatchOnce,
-  jobQueueService,
   receiptJobService,
   wpService,
 };
