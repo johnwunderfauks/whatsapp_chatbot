@@ -11,16 +11,36 @@ function bufferToStream(buffer) {
 
 function createWpService(config, logger) {
   const baseURL = config.wp.url.replace(/\/$/, "");
-  const token = Buffer.from(`${config.wp.user}:${config.wp.appPassword}`).toString("base64");
+  const token = Buffer.from(
+    `${config.wp.user}:${config.wp.appPassword}`
+  ).toString("base64");
 
   const endpoints = {
-    storeUser: process.env.WP_STORE_USER_ENDPOINT || "/wp-json/custom/v1/store-whatsapp-user",
-    receipts: process.env.WP_RECEIPTS_ENDPOINT || "/wp-json/custom/v1/receipts",
-    userProfile: process.env.WP_USER_PROFILE_ENDPOINT || "/wp-json/custom/v1/user-profile",
-    upload: process.env.WP_UPLOAD_ENDPOINT || "/wp-json/custom/v1/upload",
-    promotions: process.env.WP_PROMOTIONS_ENDPOINT || "/wp-json/custom/v1/promotions",
-    campaigns: process.env.WP_CAMPAIGNS_ENDPOINT || "/wp-json/custom/v1/campaign/list",
-    duplicateHash: process.env.WP_DUPLICATE_HASH_ENDPOINT || "/wp-json/custom/v1/check-duplicate-hash",
+    storeUser:
+      process.env.WP_STORE_USER_ENDPOINT ||
+      "/wp-json/custom/v1/store-whatsapp-user",
+    receipts:
+      process.env.WP_RECEIPTS_ENDPOINT || "/wp-json/custom/v1/receipts",
+    userProfile:
+      process.env.WP_USER_PROFILE_ENDPOINT || "/wp-json/custom/v1/user-profile",
+    upload:
+      process.env.WP_UPLOAD_ENDPOINT || "/wp-json/custom/v1/upload",
+    promotions:
+      process.env.WP_PROMOTIONS_ENDPOINT || "/wp-json/custom/v1/promotions",
+    campaigns:
+      process.env.WP_CAMPAIGNS_ENDPOINT || "/wp-json/custom/v1/campaign/list",
+    duplicateHash:
+      process.env.WP_DUPLICATE_HASH_ENDPOINT ||
+      "/wp-json/custom/v1/check-duplicate-hash",
+    receiptJobStatus:
+      process.env.WP_RECEIPT_JOB_STATUS_ENDPOINT ||
+      "/wp-json/custom/v1/receipt-job/status",
+    receiptJobs:
+      process.env.WP_RECEIPT_JOBS_ENDPOINT ||
+      "/wp-json/custom/v1/receipt-jobs",
+    receiptJobRetry:
+      process.env.WP_RECEIPT_JOB_RETRY_ENDPOINT ||
+      "/wp-json/custom/v1/receipt-job/retry",
   };
 
   const http = axios.create({
@@ -40,7 +60,9 @@ function createWpService(config, logger) {
 
   function logAxiosError(prefix, err) {
     logger.logToFile(`[error] ${prefix}: ${err.message}`);
-    logger.logToFile(`[error] ${prefix} status: ${err.response?.status || "n/a"}`);
+    logger.logToFile(
+      `[error] ${prefix} status: ${err.response?.status || "n/a"}`
+    );
     logger.logToFile(
       `[error] ${prefix} data: ${JSON.stringify(err.response?.data || {})}`
     );
@@ -53,6 +75,7 @@ function createWpService(config, logger) {
         { phone, name },
         { headers: { "Content-Type": "application/json" } }
       );
+
       const profileId = res.data?.profileId || res.data?.post_id || res.data?.id;
       return { profileId, ...res.data };
     } catch (err) {
@@ -94,6 +117,7 @@ function createWpService(config, logger) {
 
   async function getDefaultMessage() {
     let campaignLine = "";
+
     try {
       const campaigns = await getCampaignsForMenu();
       const active = campaigns.filter(
@@ -102,26 +126,33 @@ function createWpService(config, logger) {
 
       campaignLine =
         active.length > 0
-          ? `\n\n🎯 *Active Campaigns:*\n${active.map((c) => `• ${c.title || c.name}`).join("\n")}`
-          : "\n\n📭 No campaigns are running at the moment.";
+          ? `\n\n *Active Campaigns:*\n${active
+              .map((c) => `• ${c.title || c.name}`)
+              .join("\n")}`
+          : "\n\n No campaigns are running at the moment.";
     } catch (err) {
-      logger.logToFile(`[warn] Could not fetch campaigns for default message: ${err.message}`);
+      logger.logToFile(
+        `[warn] Could not fetch campaigns for default message: ${err.message}`
+      );
     }
 
     return `Here are your options:
-
-1️⃣ Upload a receipt (📸 Image files only – JPG, JPEG, PNG)
+1️⃣ Upload a receipt ( Image files only – JPG, JPEG, PNG)
 2️⃣ Check loyalty points & rewards
 3️⃣ Contact/Support Instructions
-4️⃣ View current promotions 🎉${campaignLine}
+4️⃣ View current promotions
+${campaignLine}
 
 ⚠️ Please upload clear images of your receipt.
 PDF files are not supported.
-
 Type *help* to view the menu again.`;
   }
 
-  async function uploadPrimaryAndExtraImages({ imageBuffers, filenames, profileId }) {
+  async function uploadPrimaryAndExtraImages({
+    imageBuffers,
+    filenames,
+    profileId,
+  }) {
     if (!profileId) throw new Error("Profile ID is not defined");
     if (!imageBuffers?.length) throw new Error("No images to upload");
     if (!Array.isArray(filenames) || filenames.length !== imageBuffers.length) {
@@ -156,7 +187,7 @@ Type *help* to view the menu again.`;
       if (!receiptId) throw new Error("Upload succeeded but receipt_id missing");
 
       if (imageBuffers.length > 1) {
-        for (let i = 1; i < imageBuffers.length; i++) {
+        for (let i = 1; i < imageBuffers.length; i += 1) {
           const extraForm = new FormData();
           extraForm.append("file", bufferToStream(imageBuffers[i]), {
             filename: filenames[i],
@@ -232,6 +263,42 @@ Type *help* to view the menu again.`;
     }
   }
 
+  async function upsertReceiptJobStatus(job) {
+    try {
+      const res = await http.post(endpoints.receiptJobStatus, job, {
+        headers: { "Content-Type": "application/json" },
+      });
+      return res.data;
+    } catch (err) {
+      logAxiosError("upsertReceiptJobStatus failed", err);
+      throw err;
+    }
+  }
+
+  async function listReceiptJobs(params = {}) {
+    try {
+      const res = await http.get(endpoints.receiptJobs, { params });
+      return res.data;
+    } catch (err) {
+      logAxiosError("listReceiptJobs failed", err);
+      throw err;
+    }
+  }
+
+  async function requestReceiptJobRetry(jobId) {
+    try {
+      const res = await http.post(
+        endpoints.receiptJobRetry,
+        { job_id: jobId },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      return res.data;
+    } catch (err) {
+      logAxiosError("requestReceiptJobRetry failed", err);
+      throw err;
+    }
+  }
+
   return {
     getJwtToken,
     checkOrCreateUserProfile,
@@ -243,6 +310,9 @@ Type *help* to view the menu again.`;
     uploadPrimaryAndExtraImages,
     saveReceiptDetails,
     checkDuplicateHash,
+    upsertReceiptJobStatus,
+    listReceiptJobs,
+    requestReceiptJobRetry,
   };
 }
 

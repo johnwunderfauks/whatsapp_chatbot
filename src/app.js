@@ -1,22 +1,27 @@
-// src/app.js
 const express = require("express");
 
-function createApp({ webhookRouter }) {
+function createApp({ webhookRouter, adminRouter }) {
   const app = express();
 
-  // Built-in parsers (you can remove body-parser dependency if you want)
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true }));
 
   app.get("/", (req, res) => {
     res.json({
       name: "chatbot",
-      description: "Simple WhatsApp chatbot for Wassenger",
-      endpoints: { webhook: "/webhook" },
+      description: "WhatsApp receipt chatbot",
+      endpoints: {
+        webhook: "/webhook",
+        admin: "/admin",
+      },
     });
   });
 
   app.use("/webhook", webhookRouter);
+
+  if (adminRouter) {
+    app.use("/admin", adminRouter);
+  }
 
   return app;
 }

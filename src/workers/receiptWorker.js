@@ -1,13 +1,17 @@
 const { Worker } = require("bullmq");
 const { getRedis } = require("../../helpers/services/redisClient");
 const helpers = require("../../helpers");
-const { hashBatch, RECEIPT_QUEUE_NAME } = require("../services/queueService");
+const {
+  hashBatch,
+  RECEIPT_QUEUE_NAME,
+} = require("../services/queueService");
 
 const {
   logToFile,
   uploadReceiptImages,
   fetchImageFromTwilio,
   claimReceiptBatchOnce,
+  receiptJobService,
 } = helpers;
 
 async function processReceiptFiles({ files, phone, profileId }) {
@@ -18,7 +22,9 @@ async function processReceiptFiles({ files, phone, profileId }) {
 
   for (const file of files) {
     if (!file?.url || !file?.type) {
-      logToFile(`[worker][warn] Invalid file entry skipped: ${JSON.stringify(file)}`);
+      logToFile(
+        `[worker][warn] Invalid file entry skipped: ${JSON.stringify(file)}`
+      );
       continue;
     }
 
@@ -52,31 +58,91 @@ async function processReceiptFiles({ files, phone, profileId }) {
     `[worker] Receipt processing complete for ${phone}. receipt_id=${result?.receipt_id || "n/a"}`
   );
 
-  return result;
+  return {
+    receiptId: result?.receipt_id || null,
+    fraudScore: result?.fraud_result?.score ?? null,
+    fraudDecision: result?.fraud_result?.decision || null,
+    rawResult: result,
+    fileCount: imageBuffers.length,
+  };
 }
 
 function createReceiptWorker() {
   const connection = getRedis();
 
-  return new Worker(
+  const worker = new Worker(
     RECEIPT_QUEUE_NAME,
     async (job) => {
       const { phone, profileId, files, batchHash } = job.data;
 
+      await receiptJobService.markProcessing(job.id, {
+        attemptsMade: Number(job.attemptsMade || 0) + 1,
+        queueName: RECEIPT_QUEUE_NAME,
+        batchHash,
+      });
+
       if (typeof claimReceiptBatchOnce === "function") {
         const claim = await claimReceiptBatchOnce(phone, batchHash);
+
         if (!claim.claimed) {
-          return { skipped: true, reason: "duplicate_batch" };
+          const duplicatePayload = {
+            skipped: true,
+            reason: "duplicate_batch",
+            receiptId: null,
+            fraudScore: null,
+            fraudDecision: "duplicate_batch",
+          };
+
+          await receiptJobService.markCompleted(job.id, {
+            workerResult: duplicatePayload,
+            fraudDecision: "duplicate_batch",
+          });
+
+          return duplicatePayload;
         }
       }
 
-      return processReceiptFiles({ files, phone, profileId });
+      const result = await processReceiptFiles({ files, phone, profileId });
+
+      await receiptJobService.markCompleted(job.id, {
+        receiptId: result.receiptId,
+        fraudScore: result.fraudScore,
+        fraudDecision: result.fraudDecision,
+        workerResult: result.rawResult,
+        fileCount: result.fileCount,
+      });
+
+      return result;
     },
     {
       connection,
-      concurrency: 2,
+      concurrency: Number(process.env.RECEIPT_WORKER_CONCURRENCY || 2),
     }
   );
+
+  worker.on("failed", async (job, err) => {
+    if (!job) {
+      logToFile(`[worker][error] Failed event without job: ${err.message}`);
+      return;
+    }
+
+    logToFile(`[worker][error] Job failed: ${job.id} - ${err.message}`);
+
+    await receiptJobService.markFailed(job.id, err, {
+      attemptsMade: Number(job.attemptsMade || 0),
+      attemptsAllowed: Number(
+        job.opts?.attempts || process.env.RECEIPT_JOB_MAX_ATTEMPTS || 3
+      ),
+      batchHash: job.data?.batchHash || hashBatch(job.data?.files || []),
+      queueName: RECEIPT_QUEUE_NAME,
+    });
+  });
+
+  worker.on("completed", (job) => {
+    logToFile(`[worker] Job completed: ${job?.id || "unknown"}`);
+  });
+
+  return worker;
 }
 
 module.exports = { createReceiptWorker };
