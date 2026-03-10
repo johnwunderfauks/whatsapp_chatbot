@@ -3,7 +3,7 @@ const { createLogger } = require("./logger");
 const { createStateService } = require("./services/stateService");
 const { createMediaService } = require("./services/mediaService");
 const { createWpService } = require("./services/wpService");
-const { createFraudPipeline } = require("./services/fraudPipeline");
+const { createFraudPipeline } = require("./services/fraudPipeLine");
 const { createIdempotencyService } = require("./services/idempotencyService");
 const { createReceiptJobService } = require("./services/receiptJobService");
 
