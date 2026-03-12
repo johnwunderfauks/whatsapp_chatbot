@@ -231,6 +231,37 @@ function createBotService({
     }
   }
 
+  async function handleNotifyUser(req, res) {
+    try {
+      assertAdmin(req);
+
+      const { phone, message } = req.body;
+
+      if (!phone || !message) {
+        return res
+          .status(400)
+          .json({ ok: false, error: "phone and message are required" });
+      }
+
+      const to = phone.startsWith("whatsapp:") ? phone : `whatsapp:${phone}`;
+
+      const result = await twilioClient.messages.create({
+        from: TWILIO_WHATSAPP_FROM,
+        to,
+        body: message,
+      });
+
+      logToFile(`[info] Notify-user sent to ${to}, sid=${result.sid}`);
+
+      return res.status(200).json({ ok: true, sid: result.sid });
+    } catch (error) {
+      logToFile(`[error] handleNotifyUser failed: ${error.message}`);
+      return res
+        .status(error.statusCode || 500)
+        .json({ ok: false, error: error.message });
+    }
+  }
+
   async function handleRetryReceiptJob(req, res) {
     try {
       assertAdmin(req);
@@ -489,6 +520,7 @@ function createBotService({
     health,
     startKeepAlive,
     handleWhatsappWebhook,
+    handleNotifyUser,
     handleListReceiptJobs,
     handleListFailedReceiptJobs,
     handleListDeadLetterReceiptJobs,

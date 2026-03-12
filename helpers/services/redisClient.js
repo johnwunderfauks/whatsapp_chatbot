@@ -3,9 +3,20 @@ const Redis = require("ioredis");
 let redis;
 
 function getRedis() {
-  console.log("[debug] env has REDIS_URL key:", "REDIS_URL" in process.env);
-console.log("[debug] available env keys sample:", Object.keys(process.env).filter(k => k.includes("REDIS") || k.includes("RAILWAY")));
-  if (redis) return redis;
+  const rawRedisUrl = process.env.REDIS_URL;
+
+console.log("[debug] REDIS_URL type:", typeof rawRedisUrl);
+console.log("[debug] REDIS_URL json:", JSON.stringify(rawRedisUrl));
+console.log(
+  "[debug] REDIS_URL trimmed length:",
+  (rawRedisUrl || "").trim().length
+);
+
+const redisUrl = (rawRedisUrl || "").trim();
+
+if (!redisUrl) {
+  throw new Error("Missing REDIS_URL");
+}
 
   if (!process.env.REDIS_URL) {
     throw new Error("Missing REDIS_URL");
