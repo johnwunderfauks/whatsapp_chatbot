@@ -53,6 +53,9 @@ function createFraudPipeline(config, logger, { wpService }) {
     };
 
     const localHashes = new Set();
+    const existsInSystem = parsed.receipt_id
+      ? await wpService.checkDuplicateHash(parsed.receipt_id)
+      : false;
 
     for (const img of imageAnalyses) {
       if (img.metaSignals.aiSoftwareTag) {
@@ -73,7 +76,6 @@ function createFraudPipeline(config, logger, { wpService }) {
       }
       localHashes.add(img.imageHash);
 
-      const existsInSystem = await wpService.checkDuplicateHash(parsed.receipt_id);
       if (existsInSystem) {
         summary.duplicateInSystem = true;
         summary.redFlags.push(`Image ${img.index + 1}: Previously used receipt image`);

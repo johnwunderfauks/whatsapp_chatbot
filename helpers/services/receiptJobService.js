@@ -19,7 +19,7 @@ function createReceiptJobService(config, logger, deps = {}) {
     process.env.RECEIPT_JOB_TTL_SECONDS || 60 * 60 * 24 * 30
   );
   const syncToWordPress =
-    String(process.env.RECEIPT_JOB_SYNC_TO_WP || "true").toLowerCase() !== "false";
+    String(process.env.RECEIPT_JOB_SYNC_TO_WP || "false").toLowerCase() !== "false";
 
   function nowIso() {
     return new Date().toISOString();

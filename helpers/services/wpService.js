@@ -1,6 +1,7 @@
 const axios = require("axios");
 const FormData = require("form-data");
 const { Readable } = require("stream");
+const { getRedis } = require("./redisClient");
 
 function bufferToStream(buffer) {
   const stream = new Readable();
@@ -54,6 +55,9 @@ function createWpService(config, logger) {
     },
   });
 
+  const redis = getRedis();
+  const PROFILE_CACHE_TTL = Number(process.env.PROFILE_CACHE_TTL_SECONDS || 3600);
+
   function getJwtToken() {
     return token;
   }
@@ -69,6 +73,17 @@ function createWpService(config, logger) {
   }
 
   async function checkOrCreateUserProfile({ phone, name }) {
+    const cacheKey = `profile_cache:${phone}`;
+
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      logger.logToFile(`[warn] Profile cache read failed: ${err.message}`);
+    }
+
     try {
       const res = await http.post(
         endpoints.storeUser,
@@ -77,7 +92,15 @@ function createWpService(config, logger) {
       );
 
       const profileId = res.data?.profileId || res.data?.post_id || res.data?.id;
-      return { profileId, ...res.data };
+      const profile = { profileId, ...res.data };
+
+      try {
+        await redis.set(cacheKey, JSON.stringify(profile), "EX", PROFILE_CACHE_TTL);
+      } catch (err) {
+        logger.logToFile(`[warn] Profile cache write failed: ${err.message}`);
+      }
+
+      return profile;
     } catch (err) {
       logAxiosError("checkOrCreateUserProfile failed", err);
       throw err;

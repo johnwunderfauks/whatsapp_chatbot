@@ -24,45 +24,45 @@
  *   await recordMessageSent(profileId);      // increment counter
  */
 
-const axios = require('axios');
-require('dotenv').config();
+const { getRedis } = require('../helpers/services/redisClient');
 
-const WP_URL          = process.env.WP_URL;
-const WP_USER         = process.env.WP_USER;
-const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD;
-const DAILY_LIMIT = 10; // max outbound replies per user per day
+const redis = getRedis();
 
-function wpHeaders() {
-  const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
-  return {
-    Authorization:  `Basic ${auth}`,
-    'Content-Type': 'application/json',
-  };
-}
+const DAILY_LIMIT = Number(process.env.WHATSAPP_DAILY_MSG_LIMIT || 10);
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD in UTC
 }
 
+function countKey(profileId) {
+  return `rate_limit:count:${profileId}:${todayKey()}`;
+}
+
+function warnedKey(profileId) {
+  return `rate_limit:warned:${profileId}:${todayKey()}`;
+}
+
+function secondsUntilMidnight() {
+  const now = new Date();
+  const midnight = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1
+  ));
+  return Math.max(1, Math.ceil((midnight - now) / 1000));
+}
+
 // ─────────────────────────────────────────────────────────────
 // getCounters
-// Fetches today's sent count + warned flag from WP meta
+// Reads today's sent count + warned flag from Redis
 // ─────────────────────────────────────────────────────────────
 async function getCounters(profileId) {
-  const date = todayKey();
-
   try {
-    const res = await axios.get(
-      `${WP_URL}/wp-json/custom/v1/rate-limit/${profileId}?date=${date}`,
-      { headers: wpHeaders() }
-    );
+    const [count, warned] = await redis.mget(countKey(profileId), warnedKey(profileId));
     return {
-      count:   parseInt(res.data.count   ?? 0, 10),
-      warned:  res.data.warned === true || res.data.warned === 'true',
+      count:  parseInt(count  || '0', 10),
+      warned: warned === '1',
     };
   } catch (err) {
-    // If endpoint fails, fail open — don't block messages
-    console.error('[rate-limit] Failed to fetch counters:', err.message);
+    console.error('[rate-limit] Redis read failed — failing open:', err.message);
     return { count: 0, warned: false };
   }
 }
@@ -107,20 +107,16 @@ async function checkRateLimit(profileId) {
 // recordMessageSent
 //
 // Call this AFTER successfully sending a user-initiated reply.
-// Increments today's counter by 1.
+// Increments today's counter by 1 using an atomic Redis pipeline.
 // ─────────────────────────────────────────────────────────────
 async function recordMessageSent(profileId) {
-  const date = todayKey();
-
   try {
-    await axios.post(
-      `${WP_URL}/wp-json/custom/v1/rate-limit/${profileId}/increment`,
-      { date },
-      { headers: wpHeaders() }
-    );
+    const key = countKey(profileId);
+    const ttl = secondsUntilMidnight();
+    await redis.pipeline().incr(key).expire(key, ttl).exec();
   } catch (err) {
     // Non-fatal — counter missed but message was sent, not worth blocking
-    console.error('[rate-limit] Failed to increment counter:', err.message);
+    console.error('[rate-limit] Redis increment failed:', err.message);
   }
 }
 
@@ -128,16 +124,10 @@ async function recordMessageSent(profileId) {
 // markWarned (internal)
 // ─────────────────────────────────────────────────────────────
 async function markWarned(profileId) {
-  const date = todayKey();
-
   try {
-    await axios.post(
-      `${WP_URL}/wp-json/custom/v1/rate-limit/${profileId}/mark-warned`,
-      { date },
-      { headers: wpHeaders() }
-    );
+    await redis.set(warnedKey(profileId), '1', 'EX', secondsUntilMidnight());
   } catch (err) {
-    console.error('[rate-limit] Failed to mark warned:', err.message);
+    console.error('[rate-limit] Redis mark-warned failed:', err.message);
   }
 }
 

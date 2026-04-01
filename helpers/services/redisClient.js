@@ -3,26 +3,15 @@ const Redis = require("ioredis");
 let redis;
 
 function getRedis() {
-  const rawRedisUrl = process.env.REDIS_URL;
+  if (redis) return redis;
 
-console.log("[debug] REDIS_URL type:", typeof rawRedisUrl);
-console.log("[debug] REDIS_URL json:", JSON.stringify(rawRedisUrl));
-console.log(
-  "[debug] REDIS_URL trimmed length:",
-  (rawRedisUrl || "").trim().length
-);
+  const redisUrl = (process.env.REDIS_URL || "").trim();
 
-const redisUrl = (rawRedisUrl || "").trim();
-
-if (!redisUrl) {
-  throw new Error("Missing REDIS_URL");
-}
-
-  if (!process.env.REDIS_URL) {
+  if (!redisUrl) {
     throw new Error("Missing REDIS_URL");
   }
 
-  redis = new Redis(process.env.REDIS_URL, {
+  redis = new Redis(redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
   });

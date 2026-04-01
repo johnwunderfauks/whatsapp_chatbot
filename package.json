@@ -8,7 +8,22 @@
   "scripts": {
     "start": "node index.js",
     "worker": "node worker.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/__tests__/**/*.test.js"],
+    "coverageThreshold": {
+      "global": {
+        "lines": 80
+      }
+    }
   },
   "dependencies": {
     "@google-cloud/vision": "^4.3.3",

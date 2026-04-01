@@ -116,7 +116,7 @@ function createReceiptWorker() {
     },
     {
       connection,
-      concurrency: Number(process.env.RECEIPT_WORKER_CONCURRENCY || 2),
+      concurrency: Number(process.env.RECEIPT_WORKER_CONCURRENCY || 5),
     }
   );
 
