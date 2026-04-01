@@ -29,8 +29,11 @@ function createConfig() {
       enabled: Boolean(required("GOOGLE_APPLICATION_CREDENTIALS")),
     },
     twilio: {
-      accountSid: process.env.TWILIO_ACCOUNT_SID || "",
-      authToken: process.env.TWILIO_AUTH_TOKEN || "",
+      accountSid: required("TWILIO_ACCOUNT_SID"),
+      authToken: required("TWILIO_AUTH_TOKEN"),
+    },
+    openai: {
+      apiKey: required("OPENAI_API_KEY"),
     },
   };
 }

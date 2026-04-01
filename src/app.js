@@ -3,6 +3,9 @@ const express = require("express");
 function createApp({ webhookRouter, adminRouter }) {
   const app = express();
 
+  // Trust Railway / Render reverse-proxy so req.protocol returns "https"
+  app.set("trust proxy", 1);
+
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true }));
 

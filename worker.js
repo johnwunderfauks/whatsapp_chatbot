@@ -18,6 +18,10 @@ const rateLimiter = require("./fraud-detection/message-rate-limiter");
 const { createBotService } = require("./src/services/botService");
 
 const app = express();
+
+// Trust Railway / Render reverse-proxy so req.protocol returns "https"
+app.set("trust proxy", 1);
+
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
@@ -33,11 +37,38 @@ const botService = createBotService({
   rateLimiter,
 });
 
+const skipValidation = process.env.SKIP_TWILIO_VALIDATION === "true";
+const validateTwilio = skipValidation
+  ? (_req, _res, next) => next()
+  : twilio.webhook(process.env.TWILIO_AUTH_TOKEN, { validate: true });
+
 app.get("/", botService.health);
 botService.startKeepAlive();
 
-app.post("/whatsapp", botService.handleWhatsappWebhook);
+app.post("/whatsapp", validateTwilio, botService.handleWhatsappWebhook);
 app.post("/whatsapp/notify-user", botService.handleNotifyUser);
 
 const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, () => console.log(`Express server listening on port ${PORT}`));
+const server = app.listen(PORT, () =>
+  console.log(`Express server listening on port ${PORT}`)
+);
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal] Unhandled promise rejection:", reason);
+  process.exit(1);
+});
+
+function gracefulShutdown(signal) {
+  console.log(`[server] ${signal} received, shutting down gracefully`);
+  server.close(() => {
+    console.log("[server] HTTP server closed");
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error("[server] Forced shutdown after 30s timeout");
+    process.exit(1);
+  }, 30000).unref();
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

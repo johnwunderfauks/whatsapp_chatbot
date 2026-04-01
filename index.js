@@ -35,11 +35,21 @@ function createWebhookRouter(botService) {
   const express = require("express");
   const router = express.Router();
 
+  const skipValidation = process.env.SKIP_TWILIO_VALIDATION === "true";
+  const validateTwilio = skipValidation
+    ? (_req, _res, next) => next()
+    : twilio.webhook(process.env.TWILIO_AUTH_TOKEN, { validate: true });
+
   router.get("/health", botService.health);
-  router.post("/", botService.handleWhatsappWebhook);
+  router.post("/", validateTwilio, botService.handleWhatsappWebhook);
 
   return router;
 }
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal] Unhandled promise rejection:", reason);
+  process.exit(1);
+});
 
 async function bootstrap() {
   const worker = createReceiptWorker();
@@ -76,6 +86,24 @@ async function bootstrap() {
     console.log(`[server] listening on :${port}`);
     console.log("[worker] receipt worker started");
   });
+
+  function gracefulShutdown(signal) {
+    console.log(`[server] ${signal} received, shutting down gracefully`);
+    server.close(() => {
+      console.log("[server] HTTP server closed");
+      worker.close().then(() => {
+        console.log("[worker] BullMQ worker closed");
+        process.exit(0);
+      }).catch(() => process.exit(1));
+    });
+    setTimeout(() => {
+      console.error("[server] Forced shutdown after 30s timeout");
+      process.exit(1);
+    }, 30000).unref();
+  }
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }
 
 bootstrap().catch((error) => {

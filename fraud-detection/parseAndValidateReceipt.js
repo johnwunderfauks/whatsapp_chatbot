@@ -101,7 +101,8 @@ Rules for "openAiAssessment":
         headers: {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-        }
+        },
+        timeout: 30000,
       }
     );
 

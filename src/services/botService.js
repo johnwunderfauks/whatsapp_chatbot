@@ -58,13 +58,17 @@ function createBotService({
 
   const { checkRateLimit, recordMessageSent } = rateLimiter;
 
+  // null  → key not configured, admin endpoints are unprotected (intentional dev/internal setup)
+  // ""    → key set to empty string, misconfiguration — refuse all access
+  // value → key set, validate every request
+  const ADMIN_API_KEY = process.env.ADMIN_API_KEY ?? null;
+
   const TWILIO_WHATSAPP_FROM =
     process.env.TWILIO_WHATSAPP_FROM ||
     config.twilioWhatsAppFrom ||
     "whatsapp:+15557969091";
 
   const RECEIPT_DEBOUNCE_MS = Number(process.env.RECEIPT_DEBOUNCE_MS || 2000);
-  const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 
   const receiptTimers = new Map();
 
@@ -93,7 +97,15 @@ function createBotService({
   }
 
   function assertAdmin(req) {
-    if (!ADMIN_API_KEY) return;
+    // Key not set at all → unprotected (intentional for dev/internal deployments)
+    if (ADMIN_API_KEY === null) return;
+
+    // Key set to empty string → misconfiguration, refuse all access
+    if (ADMIN_API_KEY === "") {
+      const error = new Error("Admin API key misconfigured on server");
+      error.statusCode = 503;
+      throw error;
+    }
 
     const authHeader = req.headers.authorization || "";
     const bearerToken = authHeader.startsWith("Bearer ")
