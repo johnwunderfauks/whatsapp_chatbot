@@ -10,7 +10,8 @@
     "worker": "node worker.js",
     "dev": "nodemon index.js",
     "test": "jest --coverage",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "load-test": "node load-test/run.js"
   },
   "devDependencies": {
     "jest": "^29.7.0",

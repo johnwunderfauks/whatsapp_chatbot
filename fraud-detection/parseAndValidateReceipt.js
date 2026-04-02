@@ -13,7 +13,45 @@ const axios = require('axios');
  *
  * @returns {object} { parsed, openAiAssessment }
  */
+function buildMockResult() {
+  const today = new Date().toISOString().split("T")[0];
+  return {
+    parsed: {
+      receipt_id: null,
+      store_name: "FairPrice Finest",
+      purchase_date: today,
+      total_amount: "42.51",
+      currency: "SGD",
+      items: [
+        { name: "Chicken Breast 500g", price: 7.90, quantity: 2 },
+        { name: "Brown Rice 5kg",      price: 9.50, quantity: 1 },
+        { name: "Greek Yogurt 150g",   price: 5.85, quantity: 3 },
+        { name: "Olive Oil 750ml",     price: 12.50, quantity: 1 },
+        { name: "Mixed Salad Bag",     price: 3.20, quantity: 1 },
+      ],
+    },
+    openAiAssessment: {
+      merchant: { name: "FairPrice Finest", confidence: 0.97, matched_template: "fairprice" },
+      extracted: {
+        currency: "SGD", date: today, time: "14:23",
+        subtotal: 39.00, tax: 3.51, total: 42.51, receipt_id: null,
+      },
+      checks: {
+        math_consistent: true, tax_plausible: true,
+        formatting_plausible: true, merchant_plausible: true,
+        suspicious_patterns: [],
+      },
+      fraud_likelihood: 0.03,
+      explanation: "Mock assessment — load test mode",
+    },
+  };
+}
+
 async function parseAndValidateReceipt(rawText, countryHint = 'SG', merchantCandidates = []) {
+  if (process.env.MOCK_EXTERNAL_APIS === "true") {
+    return buildMockResult();
+  }
+
   try {
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
