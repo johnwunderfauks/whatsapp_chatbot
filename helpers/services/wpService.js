@@ -90,6 +90,36 @@ function createWpService(config, logger) {
     );
   }
 
+  /**
+   * Guard against WordPress returning an HTML page (e.g. a SiteGround security
+   * captcha or Cloudflare challenge) instead of JSON.  Axios treats these as
+   * successful responses (HTTP 200) so they would silently corrupt the caller.
+   *
+   * Throws with a clear message so the error surfaces in logs and is not
+   * accidentally cached or treated as valid profile/receipt data.
+   */
+  function assertJsonResponse(res, context) {
+    const contentType = res.headers["content-type"] || "";
+    const isJson = contentType.includes("application/json");
+
+    // axios parses JSON automatically when the Content-Type is correct, so
+    // res.data will be a string only when the server sent non-JSON (e.g. HTML).
+    const isHtml =
+      !isJson &&
+      typeof res.data === "string" &&
+      res.data.trimStart().startsWith("<");
+
+    if (isHtml) {
+      // Extract a short snippet for the log without dumping the whole page.
+      const snippet = res.data.replace(/\s+/g, " ").slice(0, 200);
+      throw new Error(
+        `[${context}] WordPress returned HTML instead of JSON ` +
+        `(status=${res.status}, likely a security challenge). ` +
+        `Snippet: ${snippet}`
+      );
+    }
+  }
+
   async function checkOrCreateUserProfile({ phone, name }) {
     const cacheKey = `profile_cache:${phone}`;
 
@@ -108,6 +138,8 @@ function createWpService(config, logger) {
         { phone, name },
         { headers: { "Content-Type": "application/json" } }
       );
+
+      assertJsonResponse(res, "checkOrCreateUserProfile");
 
       const profileId = res.data?.profileId || res.data?.post_id || res.data?.id;
       const profile = { profileId, ...res.data };
@@ -129,6 +161,7 @@ function createWpService(config, logger) {
     const res = await http.get(endpoints.receipts, {
       params: { profile_id: profileId },
     });
+    assertJsonResponse(res, "getPurchaseHistory");
     return res.data;
   }
 
@@ -136,6 +169,7 @@ function createWpService(config, logger) {
     const res = await http.get(endpoints.userProfile, {
       params: { profile_id: profileId },
     });
+    assertJsonResponse(res, "getLoyaltyPoints");
     return res.data;
   }
 
@@ -220,6 +254,7 @@ Type *help* to view the menu again.`;
         },
       });
 
+      assertJsonResponse(uploadResponse, "uploadPrimaryAndExtraImages");
       logger.logToFile(
         `[debug] Primary upload response: ${JSON.stringify(uploadResponse.data)}`
       );
