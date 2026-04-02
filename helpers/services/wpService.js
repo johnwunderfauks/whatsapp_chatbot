@@ -126,7 +126,16 @@ function createWpService(config, logger) {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        return JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        // Evict corrupted cache entries (e.g. HTML spread into an object from
+        // a previous SiteGround security-challenge response).
+        if (parsed?.profileId) {
+          return parsed;
+        }
+        logger.logToFile(
+          `[warn] Evicting invalid profile cache for ${phone} (no profileId)`
+        );
+        await redis.del(cacheKey);
       }
     } catch (err) {
       logger.logToFile(`[warn] Profile cache read failed: ${err.message}`);
