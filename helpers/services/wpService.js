@@ -1,6 +1,8 @@
-const axios = require("axios");
-const FormData = require("form-data");
+const axios     = require("axios");
+const FormData  = require("form-data");
 const { Readable } = require("stream");
+const nodeHttp  = require("http");
+const nodeHttps = require("https");
 const { getRedis } = require("./redisClient");
 
 function bufferToStream(buffer) {
@@ -44,11 +46,27 @@ function createWpService(config, logger) {
       "/wp-json/custom/v1/receipt-job/retry",
   };
 
+  // Persistent keep-alive agents so TCP connections to WordPress are reused
+  // across requests. Without this every WP API call opens a new connection —
+  // at 2500 simultaneous users that saturates OS file-descriptor limits.
+  // maxSockets caps concurrency to WP; requests beyond that queue in Node.js
+  // (far cheaper than spawning thousands of TCP connections).
+  const wpHttpAgent  = new nodeHttp.Agent({
+    keepAlive:  true,
+    maxSockets: Number(process.env.WP_MAX_SOCKETS || 25),
+  });
+  const wpHttpsAgent = new nodeHttps.Agent({
+    keepAlive:  true,
+    maxSockets: Number(process.env.WP_MAX_SOCKETS || 25),
+  });
+
   const http = axios.create({
     baseURL,
     timeout: config.httpTimeoutMs,
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
+    httpAgent:  wpHttpAgent,
+    httpsAgent: wpHttpsAgent,
     headers: {
       "User-Agent": config.wp.userAgent,
       Authorization: `Basic ${token}`,

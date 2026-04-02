@@ -23,8 +23,8 @@ const app = express();
 // Trust Railway / Render reverse-proxy so req.protocol returns "https"
 app.set("trust proxy", 1);
 
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false, limit: "100kb" }));
+app.use(bodyParser.json({ limit: "100kb" }));
 
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,

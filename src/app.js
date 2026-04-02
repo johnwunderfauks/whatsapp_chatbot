@@ -43,8 +43,11 @@ function createApp({ webhookRouter, adminRouter }) {
   // Trust Railway / Render reverse-proxy so req.protocol and req.ip are correct.
   app.set("trust proxy", 1);
 
-  app.use(express.json({ limit: "10mb" }));
-  app.use(express.urlencoded({ extended: true }));
+  // Twilio webhook payloads are form-urlencoded and well under 10 KB even
+  // with multiple media URLs. 100 KB is generous headroom while blocking
+  // oversized payloads before they reach any parsing or handler logic.
+  app.use(express.json({ limit: "100kb" }));
+  app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 
   app.get("/", (_req, res) => {
     res.json({
