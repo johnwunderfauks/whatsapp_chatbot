@@ -43,6 +43,10 @@ function makeHelpers(overrides = {}) {
       listFailedJobs: jest.fn().mockResolvedValue([]),
       listDeadLetterJobs: jest.fn().mockResolvedValue([]),
     },
+    // Atomic receipt file accumulation (stateService)
+    // Default: returns 1 (first file — queue was empty before this append).
+    appendReceiptFiles: jest.fn().mockResolvedValue(1),
+    drainReceiptFiles: jest.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
@@ -252,7 +256,9 @@ describe('handleWhatsappWebhook', () => {
   });
 
   test('collects image when state.expectingImage is true', async () => {
-    helpers.getChatState.mockResolvedValue({ expectingImage: true, receiptFiles: [] });
+    helpers.getChatState.mockResolvedValue({ expectingImage: true });
+    // appendReceiptFiles returns 1 → queue was empty → first batch confirmation sent
+    helpers.appendReceiptFiles.mockResolvedValue(1);
     const { req, res } = makeReqRes({
       From: 'whatsapp:+6591234567',
       Body: '',
@@ -261,14 +267,15 @@ describe('handleWhatsappWebhook', () => {
       MediaContentType0: 'image/jpeg',
     });
     await service.handleWhatsappWebhook(req, res);
-    expect(helpers.updateChatState).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ receiptFiles: expect.arrayContaining([expect.objectContaining({ type: 'image' })]) })
+    expect(helpers.appendReceiptFiles).toHaveBeenCalledWith(
+      '+6591234567',
+      expect.arrayContaining([expect.objectContaining({ type: 'image', url: 'http://media.twilio.com/img.jpg' })])
     );
   });
 
   test('collects PDF when state.expectingImage is true', async () => {
-    helpers.getChatState.mockResolvedValue({ expectingImage: true, receiptFiles: [] });
+    helpers.getChatState.mockResolvedValue({ expectingImage: true });
+    helpers.appendReceiptFiles.mockResolvedValue(1);
     const { req, res } = makeReqRes({
       From: 'whatsapp:+6591234567',
       NumMedia: '1',
@@ -276,9 +283,9 @@ describe('handleWhatsappWebhook', () => {
       MediaContentType0: 'application/pdf',
     });
     await service.handleWhatsappWebhook(req, res);
-    expect(helpers.updateChatState).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ receiptFiles: expect.arrayContaining([expect.objectContaining({ type: 'pdf' })]) })
+    expect(helpers.appendReceiptFiles).toHaveBeenCalledWith(
+      '+6591234567',
+      expect.arrayContaining([expect.objectContaining({ type: 'pdf', url: 'http://media.twilio.com/file.pdf' })])
     );
   });
 

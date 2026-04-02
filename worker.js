@@ -8,9 +8,10 @@ if (process.env.GOOGLE_CREDENTIALS_JSON) {
   console.log(`Google credentials written to ${targetPath}`);
 }
 
-const express = require("express");
+const express   = require("express");
 const bodyParser = require("body-parser");
-const twilio = require("twilio");
+const twilio     = require("twilio");
+const rateLimit  = require("express-rate-limit");
 
 const { job } = require("./keepAlive");
 const helpers = require("./helpers");
@@ -42,10 +43,27 @@ const validateTwilio = skipValidation
   ? (_req, _res, next) => next()
   : twilio.webhook(process.env.TWILIO_AUTH_TOKEN, { validate: true });
 
+// Rate limiter — same defaults as src/app.js.
+// Returns 200 + empty TwiML on exceed so Twilio does NOT retry.
+const webhookLimiter = rateLimit({
+  windowMs: Number(process.env.WEBHOOK_RATE_LIMIT_WINDOW_MS || 60_000),
+  max:      Number(process.env.WEBHOOK_RATE_LIMIT_MAX       || 1_500),
+  standardHeaders: true,
+  legacyHeaders:   false,
+  skip: () => process.env.NODE_ENV === "test",
+  handler(_req, res) {
+    res
+      .type("text/xml")
+      .status(200)
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  },
+  keyGenerator: (req) => req.ip,
+});
+
 app.get("/", botService.health);
 botService.startKeepAlive();
 
-app.post("/whatsapp", validateTwilio, botService.handleWhatsappWebhook);
+app.post("/whatsapp", webhookLimiter, validateTwilio, botService.handleWhatsappWebhook);
 app.post("/whatsapp/notify-user", botService.handleNotifyUser);
 
 const PORT = Number(process.env.PORT || 3000);

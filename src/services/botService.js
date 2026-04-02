@@ -28,6 +28,8 @@ function createBotService({
     "getPromotions",
     "getDefaultMessage",
     "receiptJobService",
+    "appendReceiptFiles",
+    "drainReceiptFiles",
   ];
 
   for (const fn of requiredHelperFns) {
@@ -54,6 +56,8 @@ function createBotService({
     getPromotions,
     getDefaultMessage,
     receiptJobService,
+    appendReceiptFiles,
+    drainReceiptFiles,
   } = helpers;
 
   const { checkRateLimit, recordMessageSent } = rateLimiter;
@@ -370,19 +374,13 @@ function createBotService({
 
     if (state.expectingImage && numMedia > 0) {
       try {
-        const alreadyCollected = Array.isArray(state.receiptFiles)
-          ? state.receiptFiles.length
-          : 0;
-
-        if (alreadyCollected === 0) {
-          await recordMessageSent(profileId);
-          twimlReply(res, "Receipt received. Processing now...");
-        }
-
-        let files = Array.isArray(state.receiptFiles) ? [...state.receiptFiles] : [];
+        // ── Step 1: parse this request's media into newFiles[] ───────────────
+        // We collect first and append atomically, so an early return for an
+        // unsupported type never leaves partial state in Redis.
+        const newFiles = [];
 
         for (let i = 0; i < numMedia; i += 1) {
-          const mediaUrl = req.body[`MediaUrl${i}`];
+          const mediaUrl  = req.body[`MediaUrl${i}`];
           const mediaType = req.body[`MediaContentType${i}`];
 
           logToFile(
@@ -395,12 +393,12 @@ function createBotService({
           }
 
           if (mediaType.startsWith("image/")) {
-            files.push({ url: mediaUrl, type: "image" });
+            newFiles.push({ url: mediaUrl, type: "image" });
             continue;
           }
 
           if (mediaType === "application/pdf") {
-            files.push({ url: mediaUrl, type: "pdf" });
+            newFiles.push({ url: mediaUrl, type: "pdf" });
             continue;
           }
 
@@ -416,21 +414,42 @@ function createBotService({
           return undefined;
         }
 
-        await updateChatState(from, { receiptFiles: files });
-        logToFile(`[info] Collected ${files.length} receipt file(s) from ${from}`);
+        // ── Step 2: atomically append to the per-user Redis list ─────────────
+        // RPUSH is atomic — concurrent requests for the same user cannot
+        // overwrite each other's files (no read-modify-write race).
+        const newQueueLength = await appendReceiptFiles(from, newFiles);
+        logToFile(
+          `[info] Appended ${newFiles.length} file(s) for ${from} (queue length=${newQueueLength})`
+        );
 
+        // Send confirmation only the first time (queue was empty before this append).
+        if (newQueueLength === newFiles.length && newFiles.length > 0) {
+          await recordMessageSent(profileId);
+          twimlReply(res, "Receipt received. Processing now...");
+        }
+
+        // ── Step 3: reset debounce timer ─────────────────────────────────────
         if (receiptTimers.has(from)) {
           clearTimeout(receiptTimers.get(from));
           receiptTimers.delete(from);
           logToFile(`[debug] Cleared existing debounce timer for ${from}`);
         }
 
+        const messageSid = req.body.MessageSid || null;
+
         const timer = setTimeout(async () => {
           try {
-            const finalState = await getChatState(from);
-            const finalFiles = Array.isArray(finalState.receiptFiles)
-              ? finalState.receiptFiles
-              : [];
+            // Atomically drain all accumulated files for this user.
+            // LRANGE + DEL in a pipeline — no concurrent request can observe
+            // a partial drain.
+            const finalFiles = await drainReceiptFiles(from);
+
+            if (finalFiles.length === 0) {
+              logToFile(
+                `[warn] No files accumulated for ${from} after debounce — skipping enqueue`
+              );
+              return;
+            }
 
             logToFile(
               `[info] Debounced enqueue for ${finalFiles.length} receipt file(s) from ${from}`
@@ -440,7 +459,7 @@ function createBotService({
               files: finalFiles,
               phone: from,
               profileId,
-              sourceMessageSid: req.body.MessageSid || null,
+              sourceMessageSid: messageSid,
             });
 
             logToFile(`[info] Enqueued receipt job ${jobId} for ${from}`);

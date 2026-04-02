@@ -22,6 +22,8 @@ module.exports = {
   getChatState: stateService.getChatState,
   updateChatState: stateService.updateChatState,
   clearChatState: stateService.clearChatState,
+  appendReceiptFiles: stateService.appendReceiptFiles,
+  drainReceiptFiles: stateService.drainReceiptFiles,
   checkOrCreateUserProfile: wpService.checkOrCreateUserProfile,
   uploadReceiptImages: fraudPipeline.uploadReceiptImages,
   getPurchaseHistory: wpService.getPurchaseHistory,

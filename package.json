@@ -19,7 +19,9 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/__tests__/**/*.test.js"],
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ],
     "coverageThreshold": {
       "global": {
         "lines": 80
@@ -36,6 +38,7 @@
     "dotenv": "^17.3.1",
     "exif-reader": "^2.0.3",
     "express": "^4.22.1",
+    "express-rate-limit": "^8.3.2",
     "form-data": "^4.0.5",
     "html-to-text": "^9.0.5",
     "ioredis": "^5.10.0",
