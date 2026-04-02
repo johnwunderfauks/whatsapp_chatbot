@@ -509,7 +509,7 @@ function createBotService({
       await recordMessageSent(profileId);
       const points = await getLoyaltyPoints(profileId);
       const message = htmlToText(
-        points?.message || `Your current points: ${points?.points || 0}`,
+        points?.message || `Your current points: ${points?.loyalty_points || 0}`,
         { wordwrap: false }
       );
       return twimlReply(res, message);
