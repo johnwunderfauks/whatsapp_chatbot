@@ -121,6 +121,10 @@ function createWpService(config, logger) {
   }
 
   async function checkOrCreateUserProfile({ phone, name }) {
+    // ── Mock guard ───────────────────────────────────────────
+    if (process.env.MOCK_EXTERNAL_APIS === 'true') {
+      return { profileId: 99999, phone, name: name || 'Load Test User' };
+    }
     const cacheKey = `profile_cache:${phone}`;
 
     try {
@@ -175,6 +179,9 @@ function createWpService(config, logger) {
   }
 
   async function getLoyaltyPoints(profileId) {
+    if (process.env.MOCK_EXTERNAL_APIS === 'true') {
+      return { points: 100, message: '100 loyalty points' };
+    }
     const res = await http.get(endpoints.userProfile, {
       params: { profile_id: profileId },
     });
@@ -190,6 +197,9 @@ function createWpService(config, logger) {
   }
 
   async function getPromotions() {
+    if (process.env.MOCK_EXTERNAL_APIS === 'true') {
+      return { message: 'No promotions available' };
+    }
     const res = await http.get(endpoints.promotions);
     return res.data;
   }
