@@ -5,6 +5,10 @@ const { getRedis } = require("../../helpers/services/redisClient");
 const RECEIPT_QUEUE_NAME =
   process.env.RECEIPT_QUEUE_NAME || "receipt-processing";
 
+const PROFILE_QUEUE_NAME =
+  process.env.PROFILE_QUEUE_NAME || "profile-sync";
+
+let profileQueue;
 let receiptQueue;
 
 function getReceiptQueue() {
@@ -134,6 +138,31 @@ async function listQueueJobs(kind = "failed", limit = 50) {
   return queue.getJobs([kind], 0, safeLimit - 1);
 }
 
+function getProfileQueue() {
+  if (profileQueue) return profileQueue;
+
+  const connection = getRedis();
+
+  profileQueue = new Queue(PROFILE_QUEUE_NAME, {
+    connection,
+    defaultJobOptions: {
+      attempts: Number(process.env.PROFILE_JOB_MAX_ATTEMPTS || 3),
+      backoff: {
+        type: "exponential",
+        delay: Number(process.env.PROFILE_JOB_BACKOFF_MS || 3000),
+      },
+      removeOnComplete: Number(
+        process.env.PROFILE_QUEUE_REMOVE_ON_COMPLETE || 100
+      ),
+      removeOnFail: Number(
+        process.env.PROFILE_QUEUE_REMOVE_ON_FAIL || 200
+      ),
+    },
+  });
+
+  return profileQueue;
+}
+
 module.exports = {
   RECEIPT_QUEUE_NAME,
   getReceiptQueue,
@@ -142,4 +171,5 @@ module.exports = {
   retryReceiptQueueJob,
   listQueueJobs,
   hashBatch,
+  getProfileQueue 
 };

@@ -6,6 +6,8 @@ const {
   RECEIPT_QUEUE_NAME,
 } = require("../services/queueService");
 
+const PROFILE_QUEUE_NAME = "profile-sync";
+
 const {
   logToFile,
   uploadReceiptImages,
@@ -145,4 +147,69 @@ function createReceiptWorker() {
   return worker;
 }
 
-module.exports = { createReceiptWorker };
+function createProfileWorker() {
+  const connection = getRedis();
+
+  const worker = new Worker(
+    PROFILE_QUEUE_NAME,
+    async (job) => {
+      const { phone, name } = job.data;
+      const cacheKey = `profile_cache:${phone}`;
+
+      logToFile(`[profile-worker] Processing ${phone}`);
+
+      try {
+        const res = await axios.post(
+          process.env.WP_URL + "/wp-json/custom/v1/store-whatsapp-user",
+          { phone, name },
+          {
+            headers: { "Content-Type": "application/json" },
+            timeout: 10000,
+          }
+        );
+
+        const profileId =
+          res.data?.profileId || res.data?.post_id || res.data?.id;
+
+        const profile = { profileId, ...res.data };
+
+        
+        await connection.set(
+          cacheKey,
+          JSON.stringify(profile),
+          "EX",
+          Number(process.env.PROFILE_CACHE_TTL_SECONDS || 86400)
+        );
+
+        logToFile(`[profile-worker] Synced ${phone} → profileId=${profileId}`);
+
+        return profile;
+      } catch (err) {
+        logToFile(
+          `[profile-worker][error] Failed ${phone}: ${err.message}`
+        );
+        throw err;
+      }
+    },
+    {
+      connection,
+      concurrency: Number(process.env.PROFILE_WORKER_CONCURRENCY || 5), 
+    }
+  );
+
+  worker.on("failed", (job, err) => {
+    logToFile(
+      `[profile-worker][error] Job failed: ${job?.id} - ${err.message}`
+    );
+  });
+
+  worker.on("completed", (job) => {
+    logToFile(
+      `[profile-worker] Job completed: ${job?.id || "unknown"}`
+    );
+  });
+
+  return worker;
+}
+
+module.exports = { createReceiptWorker, createProfileWorker };

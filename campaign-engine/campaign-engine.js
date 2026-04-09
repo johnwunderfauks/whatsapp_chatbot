@@ -20,7 +20,7 @@
 const axios = require('axios');
 require('dotenv').config();
 
-const WP_URL          = process.env.WP_URL || 'https://wunderfauks-showcase.com/';
+const WP_URL          = process.env.WP_URL || 'https://wordpress-nginx-production-fd91.up.railway.app/';
 const WP_USER         = process.env.WP_USER;
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD;
 
