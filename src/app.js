@@ -20,6 +20,7 @@ function createWebhookLimiter() {
     max:      Number(process.env.WEBHOOK_RATE_LIMIT_MAX       || 1_500),
     standardHeaders: true,
     legacyHeaders:   false,
+    validate: false,
 
     // Skip entirely in Jest (NODE_ENV=test) so unit/e2e tests are unaffected.
     skip: () => process.env.NODE_ENV === "test",

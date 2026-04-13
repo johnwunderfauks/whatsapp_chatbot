@@ -50,6 +50,7 @@ const webhookLimiter = rateLimit({
   max:      Number(process.env.WEBHOOK_RATE_LIMIT_MAX       || 1_500),
   standardHeaders: true,
   legacyHeaders:   false,
+  validate: false,
   skip: () => process.env.NODE_ENV === "test",
   handler(_req, res) {
     res

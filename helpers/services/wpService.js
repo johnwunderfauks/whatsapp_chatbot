@@ -4,6 +4,7 @@ const { Readable } = require("stream");
 const nodeHttp  = require("http");
 const nodeHttps = require("https");
 const { getRedis } = require("./redisClient");
+const { getMysqlPool, getTablePrefix } = require("./mysqlClient");
 
 function bufferToStream(buffer) {
   const stream = new Readable();
@@ -121,21 +122,18 @@ function createWpService(config, logger) {
   }
 
   async function checkOrCreateUserProfile({ phone, name }) {
-    // ── Mock guard ───────────────────────────────────────────
-    // if (process.env.MOCK_EXTERNAL_APIS === 'true') {
-    //   return { profileId: 99999, phone, name: name || 'Load Test User' };
-    // }
+    if (process.env.MOCK_EXTERNAL_APIS === "true") {
+      return { profileId: 99999, post_id: 99999, phone, name: name || "Load Test User" };
+    }
+
     const cacheKey = `profile_cache:${phone}`;
 
+    // ── 1. Redis cache ────────────────────────────────────────
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
         const parsed = JSON.parse(cached);
-        // Evict corrupted cache entries (e.g. HTML spread into an object from
-        // a previous SiteGround security-challenge response).
-        if (parsed?.profileId) {
-          return parsed;
-        }
+        if (parsed?.profileId) return parsed;
         logger.logToFile(
           `[warn] Evicting invalid profile cache for ${phone} (no profileId)`
         );
@@ -145,17 +143,124 @@ function createWpService(config, logger) {
       logger.logToFile(`[warn] Profile cache read failed: ${err.message}`);
     }
 
+    // ── 2. Choose path: direct MySQL (fast) or WP HTTP API (fallback) ──────
+    const pool = getMysqlPool();
+
+    if (pool) {
+      return checkOrCreateViaMySQL({ pool, phone, name, cacheKey });
+    }
+
+    return checkOrCreateViaHttp({ phone, name, cacheKey });
+  }
+
+  // ── MySQL path ──────────────────────────────────────────────────────────────
+  // Bypasses the WordPress PHP stack entirely.  Mirrors what the PHP plugin
+  // does in custom_store_whatsapp_user_data():
+  //   - post_type  = 'whatsapp_user'
+  //   - meta_key   = 'phone'
+  //   - Returns    { post_id, phone, name }
+  async function checkOrCreateViaMySQL({ pool, phone, name, cacheKey }) {
+    const pfx      = getTablePrefix();   // respects WP_DB_TABLE_PREFIX
+    const safeName = name || phone;
+    // Slug: strip non-alphanumeric, trim hyphens → matches wp_sanitize_key() output
+    const slug     = phone.replace(/[^a-zA-Z0-9]/g, "-").replace(/^-+|-+$/g, "");
+
     try {
-      const res = await http.post(
-        endpoints.storeUser,
-        { phone, name },
-        { headers: { "Content-Type": "application/json" } }
+      // ── SELECT: find existing profile ──────────────────────
+      const [rows] = await pool.execute(
+        `SELECT p.ID AS post_id
+         FROM \`${pfx}posts\` p
+         INNER JOIN \`${pfx}postmeta\` pm ON pm.post_id = p.ID
+         WHERE p.post_type   = 'whatsapp_user'
+           AND p.post_status = 'publish'
+           AND pm.meta_key   = 'phone'
+           AND pm.meta_value = ?
+         LIMIT 1`,
+        [phone]
       );
 
-      assertJsonResponse(res, "checkOrCreateUserProfile");
+      let post_id;
 
-      const profileId = res.data?.profileId || res.data?.post_id || res.data?.id;
-      const profile = { profileId, ...res.data };
+      if (rows.length > 0) {
+        // Existing user — update name (mirrors wp_update_post in PHP)
+        post_id = rows[0].post_id;
+        await pool.execute(
+          `UPDATE \`${pfx}posts\`
+           SET post_title        = ?,
+               post_modified     = NOW(),
+               post_modified_gmt = UTC_TIMESTAMP()
+           WHERE ID = ?`,
+          [safeName, post_id]
+        );
+      } else {
+        // New user — INSERT post + meta inside a transaction so a partial
+        // write (crash between the two INSERTs) cannot leave an orphaned post.
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+
+          const [result] = await conn.execute(
+            `INSERT INTO \`${pfx}posts\`
+               (post_author, post_date, post_date_gmt,
+                post_content, post_title, post_excerpt,
+                post_status, post_type,
+                post_modified, post_modified_gmt,
+                post_name, post_parent, menu_order,
+                post_mime_type, comment_count,
+                to_ping, pinged, post_content_filtered,
+                comment_status, ping_status, guid)
+             VALUES
+               (1, NOW(), UTC_TIMESTAMP(),
+                ?, ?, '',
+                'publish', 'whatsapp_user',
+                NOW(), UTC_TIMESTAMP(),
+                ?, 0, 0,
+                '', 0,
+                '', '', '',
+                'closed', 'closed', '')`,
+            [`Data for ${safeName}`, safeName, slug]
+          );
+          post_id = result.insertId;
+
+          await conn.execute(
+            `INSERT INTO \`${pfx}postmeta\` (post_id, meta_key, meta_value)
+             VALUES (?, 'phone', ?)`,
+            [post_id, phone]
+          );
+
+          await conn.commit();
+        } catch (insertErr) {
+          await conn.rollback();
+
+          // Race condition: another request inserted the same phone between our
+          // SELECT and INSERT.  Re-SELECT to get the winning post_id.
+          const [retry] = await pool.execute(
+            `SELECT p.ID AS post_id
+             FROM \`${pfx}posts\` p
+             INNER JOIN \`${pfx}postmeta\` pm ON pm.post_id = p.ID
+             WHERE p.post_type   = 'whatsapp_user'
+               AND p.post_status = 'publish'
+               AND pm.meta_key   = 'phone'
+               AND pm.meta_value = ?
+             LIMIT 1`,
+            [phone]
+          );
+
+          if (retry.length > 0) {
+            post_id = retry[0].post_id;
+            logger.logToFile(
+              `[info] checkOrCreateViaMySQL: resolved race for ${phone}, post_id=${post_id}`
+            );
+          } else {
+            // Genuine error (not a race) — rethrow
+            throw insertErr;
+          }
+        } finally {
+          conn.release();
+        }
+      }
+
+      const profile = { profileId: post_id, post_id, phone, name: safeName };
 
       try {
         await redis.set(cacheKey, JSON.stringify(profile), "EX", PROFILE_CACHE_TTL);
@@ -165,7 +270,34 @@ function createWpService(config, logger) {
 
       return profile;
     } catch (err) {
-      logAxiosError("checkOrCreateUserProfile failed", err);
+      logger.logToFile(`[error] checkOrCreateViaMySQL failed: ${err.message}`);
+      throw err;
+    }
+  }
+
+  // ── WP HTTP path (used when WP_DB_HOST is not set) ──────────────────────────
+  async function checkOrCreateViaHttp({ phone, name, cacheKey }) {
+    try {
+      const res = await http.post(
+        endpoints.storeUser,
+        { phone, name },
+        { headers: { "Content-Type": "application/json" } }
+      );
+
+      assertJsonResponse(res, "checkOrCreateViaHttp");
+
+      const profileId = res.data?.profileId || res.data?.post_id || res.data?.id;
+      const profile   = { profileId, ...res.data };
+
+      try {
+        await redis.set(cacheKey, JSON.stringify(profile), "EX", PROFILE_CACHE_TTL);
+      } catch (err) {
+        logger.logToFile(`[warn] Profile cache write failed: ${err.message}`);
+      }
+
+      return profile;
+    } catch (err) {
+      logAxiosError("checkOrCreateViaHttp failed", err);
       throw err;
     }
   }

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netstat -ano)",
+      "Bash(cmd /c \"taskkill /PID 23516 /F\")",
+      "Bash(cmd /c \"tasklist /FI \\\\\"PID eq 23516\\\\\"\")",
+      "Bash(powershell -Command \"Get-Process -Id \\(Get-NetTCPConnection -LocalPort 3000 -State Listen\\).OwningProcess | Select-Object Id,ProcessName\")",
+      "Bash(powershell -Command \"Stop-Process -Id 23516 -Force; Write-Output 'killed'\")",
+      "Bash(MOCK_EXTERNAL_APIS=true SKIP_TWILIO_VALIDATION=true RECEIPT_JOB_SYNC_TO_WP=false node index.js)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(LOAD_TEST_TOTAL=3000 LOAD_TEST_CONCURRENCY=100 LOAD_TEST_MODE=text node load-test/run.js)"
+    ]
+  }
+}
