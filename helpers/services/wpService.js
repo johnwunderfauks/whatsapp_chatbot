@@ -122,9 +122,9 @@ function createWpService(config, logger) {
   }
 
   async function checkOrCreateUserProfile({ phone, name }) {
-    if (process.env.MOCK_EXTERNAL_APIS === "true") {
-      return { profileId: 99999, post_id: 99999, phone, name: name || "Load Test User" };
-    }
+    // if (process.env.MOCK_EXTERNAL_APIS === "true") {
+    //   return { profileId: 99999, post_id: 99999, phone, name: name || "Load Test User" };
+    // }
 
     const cacheKey = `profile_cache:${phone}`;
 
