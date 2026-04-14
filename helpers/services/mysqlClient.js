@@ -43,8 +43,12 @@ function getMysqlPool() {
     password,
     database,
     waitForConnections: true,
-    connectionLimit:    Number(process.env.WP_DB_POOL_SIZE || 20),
-    queueLimit:         0,
+    connectionLimit:    Number(process.env.WP_DB_POOL_SIZE || 100),
+    // Cap the wait queue so a sudden burst doesn't accumulate unboundedly in
+    // memory.  Requests beyond this limit get an immediate error rather than
+    // waiting forever.  2000 gives headroom for a 1000-user burst (each user
+    // may fire 1-2 queries) while keeping memory predictable.
+    queueLimit:         Number(process.env.WP_DB_QUEUE_LIMIT || 2000),
     connectTimeout:     10_000,
     enableKeepAlive:    true,
     keepAliveInitialDelay: 30_000,

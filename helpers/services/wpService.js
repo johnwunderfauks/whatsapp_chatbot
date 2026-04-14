@@ -54,11 +54,11 @@ function createWpService(config, logger) {
   // (far cheaper than spawning thousands of TCP connections).
   const wpHttpAgent  = new nodeHttp.Agent({
     keepAlive:  true,
-    maxSockets: Number(process.env.WP_MAX_SOCKETS || 25),
+    maxSockets: Number(process.env.WP_MAX_SOCKETS || 100),
   });
   const wpHttpsAgent = new nodeHttps.Agent({
     keepAlive:  true,
-    maxSockets: Number(process.env.WP_MAX_SOCKETS || 25),
+    maxSockets: Number(process.env.WP_MAX_SOCKETS || 100),
   });
 
   const http = axios.create({

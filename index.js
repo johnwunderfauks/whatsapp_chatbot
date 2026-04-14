@@ -82,6 +82,14 @@ async function bootstrap() {
   const port = Number(process.env.PORT || 3000);
   const server = http.createServer(app);
 
+  // Explicit timeouts prevent stalled connections from holding the event loop.
+  // headersTimeout: abort if the client doesn't finish sending headers in time.
+  // requestTimeout: abort if a full request+response cycle exceeds this limit.
+  // Both should be slightly above Railway's 60 s hard proxy timeout so Railway
+  // resets the connection cleanly before Node does.
+  server.headersTimeout = Number(process.env.SERVER_HEADERS_TIMEOUT_MS || 65_000);
+  server.requestTimeout = Number(process.env.SERVER_REQUEST_TIMEOUT_MS || 65_000);
+
   server.listen(port, () => {
     console.log(`[server] listening on :${port}`);
     console.log("[worker] receipt worker started");
